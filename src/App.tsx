@@ -11,6 +11,8 @@ import VerifyQuestions from "./pages/VerifyQuestions";
 import Templates from "./pages/Templates";
 import GeneratePaper from "./pages/GeneratePaper";
 import NotFound from "./pages/NotFound";
+import TemplateUploadPage from "./pages/TemplateUploadPage";
+import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
 import React, { useState } from "react";
 import { saveAs } from "file-saver";
 import { Document, Packer, Paragraph, TextRun } from "docx";
@@ -85,6 +87,8 @@ function App() {
               <Route path="/upload" element={<UploadQuestions />} />
               <Route path="/verify" element={<VerifyQuestions />} />
               <Route path="/templates" element={<Templates />} />
+              <Route path="/upload-template" element={<TemplateUploadPage />} />
+              <Route path="/review-template" element={<TemplateQuestionReviewPage />} />
               <Route path="/generate" element={<GeneratePaper />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

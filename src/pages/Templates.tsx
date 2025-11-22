@@ -42,6 +42,9 @@ const Templates = () => {
     ] as TemplateSection[],
   });
 
+  // State for uploaded file
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+
   useEffect(() => {
     fetchTemplates();
   }, []);
@@ -62,6 +65,35 @@ const Templates = () => {
     }
   };
 
+  // State for preview lines
+  const [previewLines, setPreviewLines] = useState<string[] | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleFilePreview = async () => {
+    if (!uploadedFile) return;
+    setIsUploading(true);
+    setPreviewLines(null);
+    const formData = new FormData();
+    formData.append("file", uploadedFile);
+    try {
+      const res = await fetch("http://localhost:4000/api/template/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.lines) {
+        setPreviewLines(data.lines);
+        toast({ title: "Preview Ready", description: "Document content extracted." });
+      } else {
+        toast({ title: "Error", description: "Could not extract document content.", variant: "destructive" });
+      }
+    } catch (err) {
+      console.error("Failed to connect to backend:", err);
+      toast({ title: "Error", description: "Failed to connect to backend. Check if the Python server is running on port 4000.", variant: "destructive" });
+    }
+    setIsUploading(false);
+  };
+
   const createTemplate = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -69,7 +101,7 @@ const Templates = () => {
         toast({ title: "Error", description: "Please login first", variant: "destructive" });
         return;
       }
-
+      // No file upload to bucket, just save template info
       const { error } = await supabase.from("templates").insert([{
         user_id: user.id,
         name: newTemplate.name,
@@ -78,13 +110,10 @@ const Templates = () => {
         instructions: newTemplate.instructions,
         sections: newTemplate.sections as any,
       }]);
-
       if (error) throw error;
-
       toast({ title: "Success", description: "Template created successfully" });
       setIsCreateDialogOpen(false);
       fetchTemplates();
-      
       setNewTemplate({
         name: "",
         description: "",
@@ -100,6 +129,8 @@ const Templates = () => {
           },
         ],
       });
+      setUploadedFile(null);
+      setPreviewLines(null);
     } catch (error) {
       toast({ title: "Error", description: "Failed to create template", variant: "destructive" });
     }
@@ -200,6 +231,38 @@ const Templates = () => {
 
           <div className="space-y-6">
             <div className="grid gap-4">
+              {/* File Upload for Word/Excel */}
+
+              <div>
+                <Label>Upload Template File (CSV, DOCX, TXT)</Label>
+                <Input
+                  type="file"
+                  accept=".csv,.docx,.txt"
+                  onChange={e => {
+                    setUploadedFile(e.target.files?.[0] || null);
+                    setPreviewLines(null);
+                  }}
+                />
+                {uploadedFile && (
+                  <div className="text-xs text-muted-foreground mt-1">Selected: {uploadedFile.name}</div>
+                )}
+                {uploadedFile && (
+                  <Button className="mt-2" size="sm" onClick={handleFilePreview} disabled={isUploading}>
+                    {isUploading ? "Extracting..." : "Preview Document"}
+                  </Button>
+                )}
+                {previewLines && previewLines.length > 0 && (
+                  <div className="mt-4 p-2 border rounded bg-gray-50 max-h-48 overflow-y-auto">
+                    <div className="font-semibold mb-1">Document Preview:</div>
+                    <ul className="text-xs space-y-1">
+                      {previewLines.map((line, idx) => (
+                        <li key={idx}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <Label>Template Name</Label>
                 <Input

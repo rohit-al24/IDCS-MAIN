@@ -35,6 +35,7 @@ const UploadQuestions = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [manualQuestion, setManualQuestion] = useState<Question>({
     question_text: "",
@@ -98,6 +99,7 @@ const UploadQuestions = () => {
     }
 
     const parsed: Question[] = dataRows
+
       .filter(row => row && row.length > 0 && row[colIdx[requiredColumns[0]]] && row[colIdx[requiredColumns[0]]].toString().trim())
       .map((row, idx) => {
         // Get BTL Level as number
@@ -107,22 +109,78 @@ const UploadQuestions = () => {
         else if (btlStr === "2") btl = 2;
         else if (btlStr === "3") btl = 3;
 
+        // Determine type from TYPE column
+        let type: QuestionType | undefined = undefined;
+        const typeStr = row[colIdx["TYPE"]]?.toString().trim().toLowerCase();
+        if (typeStr === "o") type = "objective";
+        else if (typeStr === "d") type = "descriptive";
+
+        // Only include if type is recognized
+        if (!type) return null;
+
         return {
           question_text: row[colIdx["Question Bank"]]?.toString().trim() || `Question ${idx + 1}`,
-          type: "descriptive", // or map from TYPE if needed
+          type,
           btl,
           marks: parseInt(row[colIdx["Marks"]]) || 1,
           course_outcomes: row[colIdx["Course Outcomes"]]?.toString().trim() || null,
           chapter: row[colIdx["Part"]]?.toString().trim() || null,
         };
-      });
+      })
+      .filter(Boolean); // Remove nulls for unrecognized types
 
     setQuestions(parsed);
     toast({ title: "File uploaded", description: `${parsed.length} questions parsed from Excel` });
   };
 
+
+  const handleSelectQuestion = (idx: number) => {
+    setSelectedQuestions((prev) =>
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    );
+  };
+
   const saveQuestions = async () => {
     setIsTitleDialogOpen(true);
+  };
+
+  const saveSelectedQuestions = async (status: 'verified' | 'pending') => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "Error", description: "Please login first", variant: "destructive" });
+        return;
+      }
+      const toSave = questions.filter((_, idx) => selectedQuestions.includes(idx));
+      if (toSave.length === 0) {
+        toast({ title: "No questions selected", description: "Please select at least one question." });
+        return;
+      }
+      const questionsToInsert = toSave.map(q => ({
+        user_id: user.id,
+        question_text: q.question_text,
+        difficulty: "medium" as const,
+        options: q.options ? q.options : null,
+        correct_answer: q.correct_answer || null,
+        answer_text: q.correct_answer || "",
+        btl: q.btl,
+        marks: q.marks,
+        status,
+        chapter: q.chapter || null,
+        course_outcomes: q.course_outcomes || null,
+        type: q.type,
+      }));
+      const { error } = await supabase.from("question_bank").insert(questionsToInsert);
+      if (error) {
+        console.error("Supabase insert error:", error);
+        throw error;
+      }
+      toast({ title: "Success", description: `Questions saved as ${status}` });
+      setSelectedQuestions([]);
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to save questions", variant: "destructive" });
+    }
   };
 
   const confirmSaveQuestions = async () => {
@@ -136,17 +194,13 @@ const UploadQuestions = () => {
       const questionsToInsert = questions.map(q => ({
         user_id: user.id,
         question_text: q.question_text,
-        answer_text: q.correct_answer || "",
-        subject: "",
-        difficulty: "medium", // set to a valid value
-        verified: false,
-        source_file_path: "",
-        title: title || fileNameRef.current || "Untitled",
+        difficulty: "medium" as const,
         options: q.options ? q.options : null,
         correct_answer: q.correct_answer || null,
+        answer_text: q.correct_answer || "",
         btl: q.btl,
         marks: q.marks,
-        status: "pending",
+        status: "pending" as const,
         chapter: q.chapter || null,
         course_outcomes: q.course_outcomes || null,
         type: q.type,
@@ -435,10 +489,32 @@ const UploadQuestions = () => {
                 <CardTitle>Questions ({questions.length})</CardTitle>
               </CardHeader>
               <CardContent>
+                <div className="mb-4 flex gap-2 items-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedQuestions.length === questions.length && questions.length > 0}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedQuestions(questions.map((_, idx) => idx));
+                      } else {
+                        setSelectedQuestions([]);
+                      }
+                    }}
+                    id="select-all"
+                  />
+                  <Label htmlFor="select-all" className="mr-4 cursor-pointer">Select All</Label>
+                  <Button onClick={() => saveSelectedQuestions('verified')} variant="default">Save as Verified</Button>
+                  <Button onClick={() => saveSelectedQuestions('pending')} variant="secondary">Save as Unverified</Button>
+                  <Button onClick={() => {
+                    setSelectedQuestions(questions.map((_, idx) => idx));
+                    setTimeout(() => saveSelectedQuestions('verified'), 0);
+                  }} variant="default">Save All as Verified</Button>
+                </div>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead></TableHead>
                         <TableHead>#</TableHead>
                         <TableHead>Question Text</TableHead>
                         <TableHead>Type</TableHead>
@@ -451,6 +527,13 @@ const UploadQuestions = () => {
                     <TableBody>
                       {questions.map((q, idx) => (
                         <TableRow key={idx}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedQuestions.includes(idx)}
+                              onChange={() => handleSelectQuestion(idx)}
+                            />
+                          </TableCell>
                           <TableCell>{idx + 1}</TableCell>
                           <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
                           <TableCell className="capitalize">{q.type}</TableCell>

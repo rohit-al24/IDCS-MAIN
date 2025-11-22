@@ -136,43 +136,62 @@ const VerifyQuestions = () => {
                 {verifiedQuestions.length === 0 ? (
                   <p className="text-muted-foreground text-center py-8">No pending questions yet</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>#</TableHead>
-                          <TableHead>Question Text</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>BTL</TableHead>
-                          <TableHead>Marks</TableHead>
-                          <TableHead>Course Outcomes</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {verifiedQuestions.map((q, idx) => (
-                          <TableRow key={q.id}>
-                            <TableCell>{idx + 1}</TableCell>
-                            <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
-                            <TableCell className="capitalize">{q.type}</TableCell>
-                            <TableCell>{q.btl || '-'}</TableCell>
-                            <TableCell>{q.marks ?? '-'}</TableCell>
-                            <TableCell>{q.course_outcomes || '-'}</TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => { setSelectedQuestion(q); setEditedQuestion(q); setIsEditDialogOpen(true); }}
-                              >
-                                <Edit className="w-4 h-4" />
-                                Mark Unverified
-                              </Button>
-                            </TableCell>
+                  <>
+                    <div className="mb-4 flex gap-2">
+                      <Button onClick={async () => {
+                        try {
+                          const ids = verifiedQuestions.map(q => q.id);
+                          if (ids.length === 0) return;
+                          const { error } = await supabase
+                            .from("question_bank")
+                            .update({ status: "verified", updated_at: new Date().toISOString() })
+                            .in("id", ids);
+                          if (error) throw error;
+                          toast({ title: "Success", description: "All questions marked as verified" });
+                          fetchQuestions();
+                        } catch (error) {
+                          toast({ title: "Error", description: "Failed to mark all as verified", variant: "destructive" });
+                        }
+                      }}>Save All as Verified</Button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>#</TableHead>
+                            <TableHead>Question Text</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>BTL</TableHead>
+                            <TableHead>Marks</TableHead>
+                            <TableHead>Course Outcomes</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {verifiedQuestions.map((q, idx) => (
+                            <TableRow key={q.id}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
+                              <TableCell className="capitalize">{q.type}</TableCell>
+                              <TableCell>{q['btl'] ?? '-'}</TableCell>
+                              <TableCell>{q.marks ?? '-'}</TableCell>
+                              <TableCell>{q['course_outcomes'] ?? '-'}</TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => { setSelectedQuestion(q); setEditedQuestion(q); setIsEditDialogOpen(true); }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                  Mark Unverified
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -207,9 +226,9 @@ const VerifyQuestions = () => {
                             <TableCell>{idx + 1}</TableCell>
                             <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
                             <TableCell className="capitalize">{q.type}</TableCell>
-                            <TableCell>{q.btl || '-'}</TableCell>
+                            <TableCell>{q['btl'] ?? '-'}</TableCell>
                             <TableCell>{q.marks ?? '-'}</TableCell>
-                            <TableCell>{q.course_outcomes || '-'}</TableCell>
+                            <TableCell>{q['course_outcomes'] ?? '-'}</TableCell>
                             <TableCell>
                               <Button
                                 variant="ghost"

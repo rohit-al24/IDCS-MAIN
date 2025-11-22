@@ -121,96 +121,40 @@ const GeneratePaper = () => {
     const instructions = template?.instructions || "Answer all questions";
 
     if (downloadFormat === "word") {
-      let bannerImageBuffer: ArrayBuffer | undefined;
-      try {
-        const res = await fetch(BANNER_IMAGE_URL);
-        if (res.ok) {
-          bannerImageBuffer = await res.arrayBuffer();
-        }
-      } catch {
-        bannerImageBuffer = undefined;
-      }
-
-      const doc = new Document({
-        sections: [
-          {
-            children: [
-              bannerImageBuffer
-                ? new Paragraph({
-                    children: [
-                      new ImageRun({
-                        data: bannerImageBuffer,
-                        transformation: { width: 600, height: 100 },
-                        mimeType: "image/jpeg",
-                      }),
-                    ],
-                    spacing: { after: 200 },
-                  })
-                : new Paragraph({
-                    children: [
-                      new TextRun({ text: banner, bold: true, size: 36 }),
-                    ],
-                    spacing: { after: 200 },
-                  }),
-              new Paragraph({
-                children: [
-                  new TextRun({ text: `Total Marks: ${totalMarks}`, size: 28 }),
-                ],
-                spacing: { after: 100 },
-              }),
-              new Paragraph({
-                children: [
-                  new TextRun({ text: `Instructions: ${instructions}`, size: 24 }),
-                ],
-                spacing: { after: 200 },
-              }),
-              ...generatedQuestions.map(
-                (q, idx) =>
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: `Q${idx + 1}. ${q.question_text} [${q.marks} marks]`,
-                        size: 24,
-                      }),
-                      ...(q.options
-                        ? [
-                            new TextRun({
-                              text: `\n   A) ${(q.options as any).A}\n   B) ${(q.options as any).B}\n   C) ${(q.options as any).C}\n   D) ${(q.options as any).D}`,
-                              size: 22,
-                            }),
-                          ]
-                        : []),
-                    ],
-                    spacing: { after: 150 },
-                  })
-              ),
-              // Add answer key at the end
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: "\nAnswer Key",
-                    bold: true,
-                    size: 28,
-                  }),
-                ],
-                spacing: { before: 400, after: 100 },
-              }),
-              ...answerKey.map((item) =>
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: `Q${item.questionNumber}: ${item.answer}`,
-                      size: 24,
-                    }),
-                  ],
-                  spacing: { after: 80 },
-                })
-              ),
-            ],
-          },
-        ],
+      // Use sensible defaults for metadata
+      const meta = {
+        dept: "CSE", // or prompt user for department
+        cc: "CS3401", // or prompt user for course code
+        cn: banner, // or prompt user for course name
+        qpcode: "QP123", // or prompt user for code
+        exam_title: banner,
+        regulation: "Regulation 2024",
+        semester: "Second Semester",
+      };
+      // Map questions to backend format
+      const questions = generatedQuestions.map((q, idx) => ({
+        number: idx + 1,
+        text: q.question_text,
+        co: q.course_outcomes || "CO1",
+        btl: (q as any).btl || "BTL1",
+        marks: q.marks || 2,
+        part: idx < 10 ? "A" : "B",
+        or: false,
+      }));
+      // Prepare form data
+      const formData = new FormData();
+      formData.append("questions", JSON.stringify(questions));
+      Object.entries(meta).forEach(([k, v]) => formData.append(k, v));
+      // Fetch docx from backend
+      const res = await fetch("http://localhost:4000/api/template/generate-docx", {
+        method: "POST",
+        body: formData,
       });
-      const blob = await Packer.toBlob(doc);
+      if (!res.ok) {
+        toast({ title: "Error", description: "Failed to generate DOCX from backend", variant: "destructive" });
+        return;
+      }
+      const blob = await res.blob();
       saveAs(blob, "question_paper.docx");
     } else if (downloadFormat === "excel") {
       // Banner as first row in Excel
