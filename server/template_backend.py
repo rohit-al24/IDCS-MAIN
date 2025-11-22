@@ -285,14 +285,12 @@ async def generate_docx(
     btl_shared = random.choice([3, 4, 5])
     idx = 1
     for i in range(10):
-        # 4th (i=3) must be objective, 9th (i=8) must be descriptive, 5,7 also descriptive, 6,8,10 objective
-        if i in [4, 6, 8]:  # 5th, 7th, 9th (1-based) should be descriptive, but 9th (i=8) is descriptive
-            want_descriptive = True
-        elif i in [3, 5, 7, 9]:  # 4th, 6th, 8th, 10th (1-based) should be objective
+
+        # Even index (i+1 is even): objective, Odd index: descriptive
+        if (i + 1) % 2 == 0:
             want_descriptive = False
         else:
-            want_descriptive = (i % 2 == 0)
-        label = 'D.' if want_descriptive else 'O.'
+            want_descriptive = True
         if want_descriptive:
             q = desc_qs.pop() if desc_qs else (obj_qs.pop() if obj_qs else {})
         else:
@@ -305,9 +303,13 @@ async def generate_docx(
         # Question number
         row_cells[0].text = str(idx)
 
-        # Question text with type label
+        # Question text without any label prefix
         text = _first_non_empty(q, ['text', 'question_text', 'question', 'q', 'title', 'body', 'content'])
-        row_cells[1].text = f"{label} {text}" if text else label
+        # Remove any leading 'D.' or 'O.' or similar prefix
+        import re
+        if text:
+            text = re.sub(r'^\s*[DO]\.[\s-]*', '', text, flags=re.IGNORECASE)
+        row_cells[1].text = text if text else ""
 
         # CO: use from question if present, else fallback to mapping
         co_val = q.get('co') or q.get('CO') or q.get('course_outcome')

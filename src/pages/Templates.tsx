@@ -13,12 +13,19 @@ import type { Tables } from "@/integrations/supabase/types";
 
 type Template = Tables<"templates">;
 
+interface TemplateQuestion {
+  type: 'objective' | 'descriptive';
+  co: string; // course outcome id
+  btl: string; // Bloom level
+}
+
 interface TemplateSection {
   name: string;
   objectiveCount: number;
   descriptiveCount: number;
   marksPerQuestion: number;
   difficulty: { easy: number; medium: number; hard: number };
+  questions: TemplateQuestion[]; // editor questions
 }
 
 const Templates = () => {
@@ -26,6 +33,9 @@ const Templates = () => {
   const { toast } = useToast();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  // Edit dialog state
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editTemplate, setEditTemplate] = useState<any>(null);
   const [newTemplate, setNewTemplate] = useState({
     name: "",
     description: "",
@@ -38,6 +48,7 @@ const Templates = () => {
         descriptiveCount: 0,
         marksPerQuestion: 1,
         difficulty: { easy: 5, medium: 3, hard: 2 },
+        questions: [],
       },
     ] as TemplateSection[],
   });
@@ -101,14 +112,22 @@ const Templates = () => {
         toast({ title: "Error", description: "Please login first", variant: "destructive" });
         return;
       }
-      // No file upload to bucket, just save template info
+      // Derive counts from questions arrays
+      const sectionsForSave = newTemplate.sections.map(s => ({
+        name: s.name,
+        difficulty: s.difficulty,
+        marksPerQuestion: s.marksPerQuestion,
+        questions: s.questions,
+        objectiveCount: s.questions.filter(q => q.type === 'objective').length,
+        descriptiveCount: s.questions.filter(q => q.type === 'descriptive').length,
+      }));
       const { error } = await supabase.from("templates").insert([{
         user_id: user.id,
         name: newTemplate.name,
         description: newTemplate.description,
         total_marks: newTemplate.total_marks,
         instructions: newTemplate.instructions,
-        sections: newTemplate.sections as any,
+        sections: sectionsForSave as any,
       }]);
       if (error) throw error;
       toast({ title: "Success", description: "Template created successfully" });
@@ -126,6 +145,7 @@ const Templates = () => {
             descriptiveCount: 0,
             marksPerQuestion: 1,
             difficulty: { easy: 5, medium: 3, hard: 2 },
+            questions: [],
           },
         ],
       });
@@ -147,6 +167,7 @@ const Templates = () => {
           descriptiveCount: 0,
           marksPerQuestion: 1,
           difficulty: { easy: 0, medium: 0, hard: 0 },
+          questions: [],
         },
       ],
     });
@@ -189,9 +210,187 @@ const Templates = () => {
                     </CardTitle>
                     <CardDescription className="mt-2">{template.description}</CardDescription>
                   </div>
-                  <Button variant="ghost" size="sm">
-                    <Edit className="w-4 h-4" />
-                  </Button>
+                  {/* Edit button removed as requested */}
+                      {/* Edit Template Dialog */}
+                      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>Edit Template</DialogTitle>
+                          </DialogHeader>
+                          {editTemplate && (
+                            <div className="space-y-6">
+                              <div className="grid gap-4">
+                                <div>
+                                  <Label>Template Name</Label>
+                                  <Input
+                                    value={editTemplate.name}
+                                    onChange={e => setEditTemplate({ ...editTemplate, name: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <Label>Description</Label>
+                                  <Textarea
+                                    value={editTemplate.description}
+                                    onChange={e => setEditTemplate({ ...editTemplate, description: e.target.value })}
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <Label>Total Marks</Label>
+                                    <Input
+                                      type="number"
+                                      value={editTemplate.total_marks}
+                                      onChange={e => setEditTemplate({ ...editTemplate, total_marks: parseInt(e.target.value) })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label>Instructions</Label>
+                                    <Input
+                                      value={editTemplate.instructions}
+                                      onChange={e => setEditTemplate({ ...editTemplate, instructions: e.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <h3 className="font-semibold">Sections</h3>
+                                </div>
+                                {editTemplate.sections && editTemplate.sections.map((section: any, index: number) => (
+                                  <Card key={index}>
+                                    <CardHeader>
+                                      <CardTitle className="text-base">{section.name}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                      <div className="grid grid-cols-3 gap-4">
+                                        <div>
+                                          <Label>Objective Questions</Label>
+                                          <Input
+                                            type="number"
+                                            value={section.objectiveCount}
+                                            onChange={e => {
+                                              const updated = [...editTemplate.sections];
+                                              updated[index] = { ...updated[index], objectiveCount: parseInt(e.target.value) };
+                                              setEditTemplate({ ...editTemplate, sections: updated });
+                                            }}
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Descriptive Questions</Label>
+                                          <Input
+                                            type="number"
+                                            value={section.descriptiveCount}
+                                            onChange={e => {
+                                              const updated = [...editTemplate.sections];
+                                              updated[index] = { ...updated[index], descriptiveCount: parseInt(e.target.value) };
+                                              setEditTemplate({ ...editTemplate, sections: updated });
+                                            }}
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Marks/Question</Label>
+                                          <Input
+                                            type="number"
+                                            value={section.marksPerQuestion}
+                                            onChange={e => {
+                                              const updated = [...editTemplate.sections];
+                                              updated[index] = { ...updated[index], marksPerQuestion: parseInt(e.target.value) };
+                                              setEditTemplate({ ...editTemplate, sections: updated });
+                                            }}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <Label>Difficulty Distribution</Label>
+                                        <div className="grid grid-cols-3 gap-4 mt-2">
+                                          <div>
+                                            <Label className="text-xs">Easy</Label>
+                                            <Input
+                                              type="number"
+                                              value={section.difficulty.easy}
+                                              onChange={e => {
+                                                const updated = [...editTemplate.sections];
+                                                updated[index] = {
+                                                  ...updated[index],
+                                                  difficulty: { ...updated[index].difficulty, easy: parseInt(e.target.value) }
+                                                };
+                                                setEditTemplate({ ...editTemplate, sections: updated });
+                                              }}
+                                            />
+                                          </div>
+                                          <div>
+                                            <Label className="text-xs">Medium</Label>
+                                            <Input
+                                              type="number"
+                                              value={section.difficulty.medium}
+                                              onChange={e => {
+                                                const updated = [...editTemplate.sections];
+                                                updated[index] = {
+                                                  ...updated[index],
+                                                  difficulty: { ...updated[index].difficulty, medium: parseInt(e.target.value) }
+                                                };
+                                                setEditTemplate({ ...editTemplate, sections: updated });
+                                              }}
+                                            />
+                                          </div>
+                                          <div>
+                                            <Label className="text-xs">Hard</Label>
+                                            <Input
+                                              type="number"
+                                              value={section.difficulty.hard}
+                                              onChange={e => {
+                                                const updated = [...editTemplate.sections];
+                                                updated[index] = {
+                                                  ...updated[index],
+                                                  difficulty: { ...updated[index].difficulty, hard: parseInt(e.target.value) }
+                                                };
+                                                setEditTemplate({ ...editTemplate, sections: updated });
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+                            <Button
+                              onClick={async () => {
+                                if (!editTemplate) return;
+                                try {
+                                  const { data: { user } } = await supabase.auth.getUser();
+                                  if (!user) {
+                                    toast({ title: "Error", description: "Please login first", variant: "destructive" });
+                                    return;
+                                  }
+                                  const { error } = await supabase
+                                    .from("templates")
+                                    .update({
+                                      name: editTemplate.name,
+                                      description: editTemplate.description,
+                                      total_marks: editTemplate.total_marks,
+                                      instructions: editTemplate.instructions,
+                                      sections: editTemplate.sections as any,
+                                    })
+                                    .eq("id", editTemplate.id)
+                                    .eq("user_id", user.id);
+                                  if (error) throw error;
+                                  toast({ title: "Success", description: "Template updated successfully" });
+                                  setIsEditDialogOpen(false);
+                                  setEditTemplate(null);
+                                  fetchTemplates();
+                                } catch (error) {
+                                  toast({ title: "Error", description: "Failed to update template", variant: "destructive" });
+                                }
+                              }}
+                            >Save Changes</Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
                 </div>
               </CardHeader>
               <CardContent>
@@ -311,77 +510,109 @@ const Templates = () => {
                 </Button>
               </div>
 
-              {newTemplate.sections.map((section, index) => (
-                <Card key={index}>
+              {newTemplate.sections.map((section, sIdx) => (
+                <Card key={sIdx}>
                   <CardHeader>
-                    <CardTitle className="text-base">{section.name}</CardTitle>
+                    <CardTitle className="text-base flex items-center justify-between">
+                      <span>{section.name}</span>
+                      <div className="flex gap-2 items-center">
+                        <Label className="text-xs"># Questions</Label>
+                        <Input
+                          type="number"
+                          className="w-20 h-8"
+                          value={section.questions.length}
+                          onChange={(e) => {
+                            const count = Math.max(0, parseInt(e.target.value) || 0);
+                            const updatedSections = [...newTemplate.sections];
+                            const existing = updatedSections[sIdx].questions;
+                            if (count > existing.length) {
+                              // add new empty questions
+                              const toAdd = Array.from({ length: count - existing.length }, () => ({
+                                type: 'objective' as const,
+                                co: 'CO1',
+                                btl: 'BTL1'
+                              }));
+                              updatedSections[sIdx].questions = [...existing, ...toAdd];
+                            } else {
+                              updatedSections[sIdx].questions = existing.slice(0, count);
+                            }
+                            // update counts
+                            updatedSections[sIdx].objectiveCount = updatedSections[sIdx].questions.filter(q => q.type === 'objective').length;
+                            updatedSections[sIdx].descriptiveCount = updatedSections[sIdx].questions.filter(q => q.type === 'descriptive').length;
+                            setNewTemplate({ ...newTemplate, sections: updatedSections });
+                          }}
+                        />
+                      </div>
+                    </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <Label>Objective Questions</Label>
-                        <Input
-                          type="number"
-                          value={section.objectiveCount}
-                          onChange={(e) => updateSection(index, "objectiveCount", parseInt(e.target.value))}
-                        />
-                      </div>
-                      <div>
-                        <Label>Descriptive Questions</Label>
-                        <Input
-                          type="number"
-                          value={section.descriptiveCount}
-                          onChange={(e) => updateSection(index, "descriptiveCount", parseInt(e.target.value))}
-                        />
-                      </div>
-                      <div>
-                        <Label>Marks/Question</Label>
-                        <Input
-                          type="number"
-                          value={section.marksPerQuestion}
-                          onChange={(e) => updateSection(index, "marksPerQuestion", parseInt(e.target.value))}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label>Difficulty Distribution</Label>
-                      <div className="grid grid-cols-3 gap-4 mt-2">
-                        <div>
-                          <Label className="text-xs">Easy</Label>
-                          <Input
-                            type="number"
-                            value={section.difficulty.easy}
-                            onChange={(e) => updateSection(index, "difficulty", {
-                              ...section.difficulty,
-                              easy: parseInt(e.target.value)
-                            })}
-                          />
+                    {section.questions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Set number of questions to begin.</p>
+                    )}
+                    {section.questions.map((q, qIdx) => (
+                      <div key={qIdx} className="border rounded p-3 space-y-2">
+                        <div className="grid grid-cols-5 gap-2 items-start">
+                          <div>
+                            <Label className="text-xs">Type</Label>
+                            <select
+                              className="w-full text-sm border rounded h-8 px-2 bg-background"
+                              value={q.type}
+                              onChange={(e) => {
+                                const val = e.target.value as 'objective' | 'descriptive';
+                                const updatedSections = [...newTemplate.sections];
+                                updatedSections[sIdx].questions[qIdx].type = val;
+                                updatedSections[sIdx].objectiveCount = updatedSections[sIdx].questions.filter(x => x.type === 'objective').length;
+                                updatedSections[sIdx].descriptiveCount = updatedSections[sIdx].questions.filter(x => x.type === 'descriptive').length;
+                                setNewTemplate({ ...newTemplate, sections: updatedSections });
+                              }}
+                            >
+                              <option value="objective">Objective</option>
+                              <option value="descriptive">Descriptive</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2 flex items-end">
+                            <p className="text-xs text-muted-foreground">Will fetch random question</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs">CO</Label>
+                            <select
+                              className="w-full text-sm border rounded h-8 px-2 bg-background"
+                              value={q.co}
+                              onChange={(e) => {
+                                const updatedSections = [...newTemplate.sections];
+                                updatedSections[sIdx].questions[qIdx].co = e.target.value;
+                                setNewTemplate({ ...newTemplate, sections: updatedSections });
+                              }}
+                            >
+                              <option value="CO1">CO1</option>
+                              <option value="CO2">CO2</option>
+                              <option value="CO3">CO3</option>
+                              <option value="CO4">CO4</option>
+                              <option value="CO5">CO5</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">BTL</Label>
+                            <select
+                              className="w-full text-sm border rounded h-8 px-2 bg-background"
+                              value={q.btl}
+                              onChange={(e) => {
+                                const updatedSections = [...newTemplate.sections];
+                                updatedSections[sIdx].questions[qIdx].btl = e.target.value;
+                                setNewTemplate({ ...newTemplate, sections: updatedSections });
+                              }}
+                            >
+                              <option value="BTL1">BTL1</option>
+                              <option value="BTL2">BTL2</option>
+                              <option value="BTL3">BTL3</option>
+                              <option value="BTL4">BTL4</option>
+                              <option value="BTL5">BTL5</option>
+                              <option value="BTL6">BTL6</option>
+                            </select>
+                          </div>
                         </div>
-                        <div>
-                          <Label className="text-xs">Medium</Label>
-                          <Input
-                            type="number"
-                            value={section.difficulty.medium}
-                            onChange={(e) => updateSection(index, "difficulty", {
-                              ...section.difficulty,
-                              medium: parseInt(e.target.value)
-                            })}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Hard</Label>
-                          <Input
-                            type="number"
-                            value={section.difficulty.hard}
-                            onChange={(e) => updateSection(index, "difficulty", {
-                              ...section.difficulty,
-                              hard: parseInt(e.target.value)
-                            })}
-                          />
-                        </div>
                       </div>
-                    </div>
+                    ))}
                   </CardContent>
                 </Card>
               ))}

@@ -68,6 +68,7 @@ export type Database = {
           unit: string | null
           updated_at: string | null
           user_id: string
+          course_outcomes: string | null
         }
         Insert: {
           chapter?: string | null
@@ -84,6 +85,7 @@ export type Database = {
           unit?: string | null
           updated_at?: string | null
           user_id: string
+          course_outcomes?: string | null
         }
         Update: {
           chapter?: string | null
@@ -100,6 +102,7 @@ export type Database = {
           unit?: string | null
           updated_at?: string | null
           user_id?: string
+          course_outcomes?: string | null
         }
         Relationships: []
       }

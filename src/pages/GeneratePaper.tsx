@@ -67,42 +67,52 @@ const GeneratePaper = () => {
         return;
       }
 
-      const sections = template.sections as any[];
-      const selectedQuestions: Question[] = [];
-      
-      sections.forEach((section) => {
-        // Get objective questions for this section
-        const objectivePool = verifiedQuestions.filter((q) => q.type === "objective");
-        const selectedObjective = objectivePool
-          .sort(() => Math.random() - 0.5)
-          .slice(0, section.objectiveCount);
-        
-        // Get descriptive questions for this section
-        const descriptivePool = verifiedQuestions.filter((q) => q.type === "descriptive");
-        const selectedDescriptive = descriptivePool
-          .sort(() => Math.random() - 0.5)
-          .slice(0, section.descriptiveCount);
-        
-        selectedQuestions.push(...selectedObjective, ...selectedDescriptive);
+      const pickedIds = new Set<string>();
+      const generated: Question[] = [];
+      const templateSections = (template.sections as any[]) || [];
+
+      templateSections.forEach((section) => {
+        const criteriaList = section.questions || [];
+        criteriaList.forEach((crit: any) => {
+          let pool = verifiedQuestions.filter(q => q.type === crit.type);
+          if (crit.co) pool = pool.filter(q => (q as any).course_outcomes === crit.co);
+          if (crit.btl) {
+            const btlNum = parseInt(String(crit.btl).replace(/[^0-9]/g, ''));
+            pool = pool.filter(q => (q as any).btl === btlNum);
+          }
+          pool = pool.filter(q => !pickedIds.has(q.id));
+          if (pool.length === 0) {
+            let fallback = verifiedQuestions.filter(q => q.type === crit.type && !pickedIds.has(q.id));
+            if (fallback.length === 0) fallback = verifiedQuestions.filter(q => !pickedIds.has(q.id));
+            pool = fallback;
+          }
+          if (pool.length === 0) return; // no match available
+          const chosen = pool[Math.floor(Math.random() * pool.length)];
+            pickedIds.add(chosen.id);
+          (chosen as any).co = crit.co;
+          (chosen as any).btl = crit.btl;
+          generated.push(chosen);
+        });
       });
 
-      // Generate answer key
-      const key = selectedQuestions
-        .filter((q) => q.correct_answer)
-        .map((q, idx) => ({
-          questionNumber: idx + 1,
-          answer: q.correct_answer || "",
-        }));
+      if (generated.length === 0) {
+        toast({ title: "Error", description: "No questions matched the template criteria", variant: "destructive" });
+        return;
+      }
 
-      setGeneratedQuestions(selectedQuestions);
+      // Answer key
+      const key = generated
+        .filter(q => q.correct_answer)
+        .map((q, idx) => ({ questionNumber: idx + 1, answer: q.correct_answer || "" }));
+
+      setGeneratedQuestions(generated);
       setAnswerKey(key);
       setIsGenerated(true);
 
-      // Save to database
       await supabase.from("generated_papers").insert({
         user_id: user.id,
         template_id: selectedTemplateId,
-        questions: selectedQuestions,
+        questions: generated,
         answer_key: key,
       });
 
@@ -113,6 +123,7 @@ const GeneratePaper = () => {
   };
 
   const BANNER_IMAGE_URL = "/banner.jpg"; // Use banner.jpg from public folder
+  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
 
   const downloadPaper = async () => {
     const template = templates.find((t) => t.id === selectedTemplateId);
@@ -135,7 +146,8 @@ const GeneratePaper = () => {
       const questions = generatedQuestions.map((q, idx) => ({
         number: idx + 1,
         text: q.question_text,
-        co: q.course_outcomes || "CO1",
+        // co: q.course_outcomes || "CO1", // 'course_outcomes' does not exist on type
+        co: (q as any).co || (q as any).courseOutcome || "CO1", // fallback to possible property or default
         btl: (q as any).btl || "BTL1",
         marks: q.marks || 2,
         part: idx < 10 ? "A" : "B",
@@ -145,17 +157,22 @@ const GeneratePaper = () => {
       const formData = new FormData();
       formData.append("questions", JSON.stringify(questions));
       Object.entries(meta).forEach(([k, v]) => formData.append(k, v));
-      // Fetch docx from backend
-      const res = await fetch("http://localhost:4000/api/template/generate-docx", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        toast({ title: "Error", description: "Failed to generate DOCX from backend", variant: "destructive" });
-        return;
+      // Fetch docx from backend with error handling
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/template/generate-docx`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          toast({ title: "Error", description: "Backend responded with an error generating DOCX", variant: "destructive" });
+          return;
+        }
+        const blob = await res.blob();
+        saveAs(blob, "question_paper.docx");
+      } catch (err: any) {
+        toast({ title: "Connection Error", description: "Cannot reach backend. Start the server on port 4000 or set VITE_BACKEND_URL.", variant: "destructive" });
+        console.error("DOCX generation fetch failed", err);
       }
-      const blob = await res.blob();
-      saveAs(blob, "question_paper.docx");
     } else if (downloadFormat === "excel") {
       // Banner as first row in Excel
       const wsData = [
@@ -238,6 +255,7 @@ const GeneratePaper = () => {
               </Button>
             </CardContent>
           </Card>
+            
 
           {isGenerated && (
             <>
