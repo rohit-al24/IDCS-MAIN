@@ -148,8 +148,9 @@ async def generate_docx(
     cn: str = Form(""),
     qpcode: str = Form(""),
     exam_title: str = Form("B.E., /B.Tech., DEGREE EXAMINATIONS, APRIL/MAY2024"),
-    regulation: str = Form("Regulation 2024"),
+    regulation: str = Form("Regulation 2023"),
     semester: str = Form("Second Semester"),
+    excel_meta: str = Form(None),
 ):
     from docx import Document
     from docx.shared import Pt, Inches
@@ -158,6 +159,30 @@ async def generate_docx(
     import tempfile
     import os
 
+
+    # If excel_meta is provided, parse and override cc/cn/dept/semester
+    import json
+    meta = {}
+    if excel_meta:
+        try:
+            meta = json.loads(excel_meta)
+        except Exception:
+            meta = {}
+    # Excel meta expected keys: course_code_name, department, semester (number or string)
+    cc_from_excel = meta.get('course_code_name') or cc
+    dept_from_excel = meta.get('department') or dept
+    sem_from_excel = meta.get('semester') or semester
+    # Convert semester number to words if needed
+    def semester_to_words(sem):
+        try:
+            n = int(str(sem).strip())
+            words = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth"]
+            if 1 <= n <= 8:
+                return f"{words[n-1]} Semester"
+        except Exception:
+            pass
+        return str(sem)
+    sem_word = semester_to_words(sem_from_excel)
     doc = Document()
 
     # Helpers
@@ -186,25 +211,35 @@ async def generate_docx(
     for cell in rule.rows[0].cells:
         cell.text = " "
 
-    # Header block
+
+    # Header block (match screenshot)
+    # Reg. No. with more left margin
     p_reg = doc.add_paragraph()
-    run_reg = p_reg.add_run("               Reg. No. :")
+    run_reg = p_reg.add_run("Reg. No. :")
     run_reg.bold = True
     run_reg.font.size = Pt(12)
     p_reg.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p_reg.paragraph_format.left_indent = Inches(0.5)
 
     add_bold_line("K. RAMAKRISHNAN COLLEGE OF ENGINEERING", True, 14)
     add_bold_line("(AUTONOMOUS)", True, 12)
-    add_bold_line(f"Question Paper Code: {qpcode}", True, 12)
-    add_bold_line(exam_title, True, 12)
-    add_line(semester, True, 11, italic=True)
-    add_line(dept, True, 11, italic=True)
-    add_bold_line(f"{cc} – {cn}", True, 12)
+    add_bold_line("Model Examination", True, 12)
+    add_line(sem_word, True, 11, italic=True)
+    add_line(dept_from_excel, True, 11, italic=True)
+    add_bold_line(cc_from_excel, True, 12)
     add_line(f"({regulation})", True, 11)
 
+    # Time and Maximum Marks on same line, left-aligned, with spacing
     p_tm = doc.add_paragraph()
-    r_tm = p_tm.add_run("Time: Three Hours          Maximum Marks: 100 Marks")
+    r_tm = p_tm.add_run("Time: Three Hours")
     r_tm.font.size = Pt(11)
+    # Add enough spaces to separate
+    r_tm2 = p_tm.add_run("    ")
+    r_tm2.font.size = Pt(11)
+    # Use tab for better alignment
+    p_tm.add_run("\t").font.size = Pt(11)
+    r_tm3 = p_tm.add_run("Maximum Marks: 100 Marks")
+    r_tm3.font.size = Pt(11)
     p_tm.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     doc.add_paragraph(" ")
@@ -328,7 +363,11 @@ async def generate_docx(
             btl_val = q.get('btl') or q.get('BTL') or random.choice([1, 2, 3, 4, 5])
         else:
             btl_val = q.get('btl') or q.get('BTL') or btl_shared
-        row_cells[3].text = f"BTL{btl_val}"
+        # Remove 'BTL' prefix if present, only show number
+        btl_str = str(btl_val)
+        if btl_str.upper().startswith('BTL'):
+            btl_str = btl_str[3:]
+        row_cells[3].text = btl_str.strip()
 
         # Marks: always 2 for Part-A
         row_cells[4].text = "2"
@@ -368,19 +407,32 @@ async def generate_docx(
             if len(temp_pair) == 2:
                 b_pairs.append(temp_pair)
                 temp_pair = []
-    for pair in b_pairs:
-        qa, qb = pair
+    # Always print 5 pairs: 11, 12, 13, 14, 15, even if some pairs are missing (insert empty rows)
+    for pair_idx in range(5):
+        base_no = str(11 + pair_idx)
+        pair = b_pairs[pair_idx] if pair_idx < len(b_pairs) else None
+        if pair:
+            try:
+                pair_sorted = sorted(pair, key=lambda q: str(q.get('sub','')))
+            except Exception:
+                pair_sorted = pair
+            qa, qb = pair_sorted
+        else:
+            qa, qb = None, None
         # (a) row
         row_a = table_b.add_row().cells
         for i, w in enumerate(widths_b):
             row_a[i].width = w
-        row_a[0].text = str(qa.get('baseNumber', qa.get('number', '')))
+        row_a[0].text = f"{base_no} A"
         p_a = row_a[1].paragraphs[0]
         p_a.paragraph_format.left_indent = Inches(0.7)
-        p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
-        row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
-        row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
-        row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
+        if qa:
+            p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
+            row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+            row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
+            row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
+        else:
+            row_a[2].text = row_a[3].text = row_a[4].text = ""
         for p in (
             row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs
         ):
@@ -397,13 +449,16 @@ async def generate_docx(
         row_b = table_b.add_row().cells
         for i, w in enumerate(widths_b):
             row_b[i].width = w
-        row_b[0].text = str(qb.get('baseNumber', qb.get('number', '')))
+        row_b[0].text = f"{base_no} B"
         p_b = row_b[1].paragraphs[0]
         p_b.paragraph_format.left_indent = Inches(0.7)
-        p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
-        row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
-        row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
-        row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
+        if qb:
+            p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
+            row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+            row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
+            row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
+        else:
+            row_b[2].text = row_b[3].text = row_b[4].text = ""
         for p in (
             row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs
         ):

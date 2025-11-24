@@ -46,10 +46,14 @@ def upload_questions_excel(file: UploadFile = File(...)):
             else:
                 continue
             btl_raw = ws.cell(row=r, column=header_map['BTL Level']).value
-            try:
-                btl = int(btl_raw) if btl_raw is not None else 2
-            except Exception:
-                btl = 2
+            btl = 2
+            if btl_raw is not None:
+                btl_str = str(btl_raw).strip().upper()
+                # Extract all numbers from the string (e.g., 'BTL4', '4/5', '4,5', 'BTL 5', etc.)
+                btl_nums = re.findall(r'\d+', btl_str)
+                if btl_nums:
+                    # Use the highest BTL number found
+                    btl = int(max(btl_nums, key=int))
             marks_raw = ws.cell(row=r, column=header_map['Marks']).value
             try:
                 marks = int(marks_raw) if marks_raw is not None else 1

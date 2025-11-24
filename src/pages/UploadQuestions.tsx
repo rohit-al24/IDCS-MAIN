@@ -15,7 +15,8 @@ import { saveAs } from "file-saver";
 import { supabase } from "@/integrations/supabase/client";
 
 type QuestionType = "objective" | "mcq" | "descriptive";
-type BTLLevel = 1 | 2 | 3;
+// Support BTL levels up to 6 (extend if needed)
+type BTLLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 interface Question {
   id?: string;
@@ -107,12 +108,19 @@ const UploadQuestions = () => {
     const parsed: Question[] = dataRows
       .filter(row => row && row.length > 0 && row[colIdx[requiredColumns[0]]] && row[colIdx[requiredColumns[0]]].toString().trim())
       .map((row, idx) => {
-        // Get BTL Level as number
+        // Robust BTL parsing: extract all numbers and use the highest (matches backend logic)
         let btl: BTLLevel = 2;
-        const btlStr = row[colIdx["BTL Level"]]?.toString().trim();
-        if (btlStr === "1") btl = 1;
-        else if (btlStr === "2") btl = 2;
-        else if (btlStr === "3") btl = 3;
+        const rawBTLCell = row[colIdx["BTL Level"]];
+        if (rawBTLCell !== undefined && rawBTLCell !== null) {
+          const btlStr = rawBTLCell.toString().toUpperCase();
+          const nums = btlStr.match(/\d+/g);
+          if (nums && nums.length) {
+            const highest = nums.map(n => parseInt(n, 10)).sort((a,b) => b - a)[0];
+            if ([1,2,3,4,5,6].includes(highest)) {
+              btl = highest as BTLLevel;
+            }
+          }
+        }
 
         // Determine type from TYPE column
         let type: QuestionType | undefined = undefined;
@@ -424,6 +432,9 @@ const UploadQuestions = () => {
                         <SelectItem value="1">1</SelectItem>
                         <SelectItem value="2">2</SelectItem>
                         <SelectItem value="3">3</SelectItem>
+                        <SelectItem value="4">4</SelectItem>
+                        <SelectItem value="5">5</SelectItem>
+                        <SelectItem value="6">6</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
