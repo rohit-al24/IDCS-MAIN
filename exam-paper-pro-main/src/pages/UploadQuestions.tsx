@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 type BTLLevel = 1 | 2 | 3 | 4 | 5 | 6;
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Upload, Plus, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -39,29 +38,65 @@ const UploadQuestions = () => {
     const { toast } = useToast();
 
     // Save a single question
+    const resolveBackendBase = () => {
+      const envBase = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined;
+      const normalize = (raw?: string) => {
+        if (!raw) return '';
+        if (/^:?[0-9]+$/.test(raw)) return `http://localhost${raw.startsWith(':')?raw:':' + raw}`;
+        if (!/^https?:\/\//i.test(raw)) return `http://${raw}`;
+        return raw.replace(/\/$/, '');
+      };
+      const primary = normalize(envBase) || 'http://localhost:4000';
+      return [primary, 'http://localhost:8000'];
+    };
+    const ensureTitleId = async (title: string): Promise<number> => {
+      const bases = resolveBackendBase();
+      for (const base of bases) {
+        try {
+          const fd = new FormData(); fd.append('title', title);
+            const resp = await fetch(`${base}/api/question-bank-titles`, { method: 'POST', body: fd });
+            if (!resp.ok) continue;
+            const data = await resp.json();
+            if (data && typeof data.id === 'number') return data.id;
+        } catch {}
+      }
+      throw new Error('Failed to create/fetch title');
+    };
     const saveSingleQuestion = async (question: Question) => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          toast({ title: "Error", description: "Please login first", variant: "destructive" });
-          return;
-        }
-        const questionToInsert = {
-          user_id: user.id,
+        const titleId = await ensureTitleId('default');
+        const payloadArr = [{
           question_text: question.question_text,
           type: question.type,
-          options: question.options,
-          correct_answer: question.correct_answer,
-          btl_level: question.btl_level,
+          options: question.options || null,
+          correct_answer: question.correct_answer || null,
+          answer_text: question.correct_answer || '',
+          btl: question.btl_level,
           marks: question.marks,
-          unit: String(question.unit ?? ""),
-          status: "pending" as const,
-        };
-        let { error } = await supabase.from("question_bank").insert([questionToInsert]);
-        if (error) throw error;
-        toast({ title: "Question saved", description: `Question saved to database` });
+          chapter: question.unit != null ? String(question.unit) : null,
+          course_outcomes: null
+        }];
+        const bases = resolveBackendBase();
+        let lastErr: any = null;
+        for (const base of bases) {
+          try {
+            const fd = new FormData();
+            fd.append('title_id', String(titleId));
+            fd.append('status', 'pending');
+            fd.append('payload', JSON.stringify(payloadArr));
+            const resp = await fetch(`${base}/api/question-bank/bulk`, { method: 'POST', body: fd });
+            if (!resp.ok) {
+              let det = `HTTP ${resp.status}`; try { const j = await resp.json(); det = j.detail || det; } catch {}
+              throw new Error(det);
+            }
+            await resp.json();
+            toast({ title: 'Question saved', description: 'Saved locally' });
+            return;
+          } catch (err) { lastErr = err; }
+        }
+        throw lastErr || new Error('Backend unreachable');
       } catch (err: any) {
-        toast({ title: "Error", description: err.message || "Failed to save question", variant: "destructive" });
+        toast({ title: 'Error', description: err?.message || 'Failed to save question', variant: 'destructive' });
       }
     };
 
@@ -80,43 +115,22 @@ const UploadQuestions = () => {
       const file = e.target.files?.[0];
       if (!file) return;
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          toast({ title: "Error", description: "Please login first", variant: "destructive" });
-          return;
-        }
-        const timestamp = Date.now();
-        const storagePath = `uploads/${user.id}-${timestamp}-${file.name}`;
-        const { error } = await supabase.storage.from('question-banks').upload(storagePath, file);
-        if (error) {
-          toast({ title: "Upload failed", description: error.message, variant: "destructive" });
-          return;
-        }
-        setUploadedFilePath(storagePath);
-        toast({ title: "File uploaded to storage", description: file.name });
-      } catch (err: any) {
-        toast({ title: "Error", description: "Failed to upload file to storage", variant: "destructive" });
-        return;
-      }
-      // Parse the file and update questions state
-      try {
         const text = await file.text();
         const lines = text.split("\n").filter(line => line.trim());
         if (lines.length < 2) {
-          toast({ title: "Error", description: "No questions found in file", variant: "destructive" });
+          toast({ title: 'Error', description: 'No questions found in file', variant: 'destructive' });
           return;
         }
-        // CSV: question_text,type,A,B,C,D,correct_answer,btl_level,marks,unit
         const parsed: Question[] = lines.slice(1).map((line, idx) => {
-          const parts = line.split(",").map(p => p.trim());
+          const parts = line.split(',').map(p => p.trim());
           return {
             question_text: parts[0] || `Question ${idx + 1}`,
-            type: (parts[1]?.toLowerCase() as QuestionType) || "objective",
-            options: (parts[1]?.toLowerCase() === "objective" || parts[1]?.toLowerCase() === "mcq") ? {
-              A: parts[2] || "",
-              B: parts[3] || "",
-              C: parts[4] || "",
-              D: parts[5] || "",
+            type: (parts[1]?.toLowerCase() as QuestionType) || 'objective',
+            options: (parts[1]?.toLowerCase() === 'objective' || parts[1]?.toLowerCase() === 'mcq') ? {
+              A: parts[2] || '',
+              B: parts[3] || '',
+              C: parts[4] || '',
+              D: parts[5] || '',
             } : null,
             correct_answer: parts[6] || null,
             btl_level: (parseInt(parts[7]) as BTLLevel) || 1,
@@ -125,9 +139,9 @@ const UploadQuestions = () => {
           };
         });
         setQuestions(parsed);
-        toast({ title: "File uploaded", description: `${parsed.length} questions parsed` });
+        toast({ title: 'File uploaded', description: `${parsed.length} questions parsed` });
       } catch (err: any) {
-        toast({ title: "Error", description: "Failed to parse file", variant: "destructive" });
+        toast({ title: 'Error', description: 'Failed to parse file', variant: 'destructive' });
       }
     };
 

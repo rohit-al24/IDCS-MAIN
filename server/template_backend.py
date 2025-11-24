@@ -1,3 +1,14 @@
+import logging
+
+# Setup logging to file and console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler("template_backend.log", mode="a", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -7,8 +18,12 @@ import os
 import tempfile
 import csv
 from docx import Document
+from server.routes.upload_questions_excel import router as upload_questions_router
 
 app = FastAPI()
+
+# Register the upload questions router
+app.include_router(upload_questions_router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -284,18 +299,9 @@ async def generate_docx(
     # Prepare BTL shared value for questions 5-10 (must be 3,4 or 5)
     btl_shared = random.choice([3, 4, 5])
     idx = 1
-    for i in range(10):
-
-        # Even index (i+1 is even): objective, Odd index: descriptive
-        if (i + 1) % 2 == 0:
-            want_descriptive = False
-        else:
-            want_descriptive = True
-        if want_descriptive:
-            q = desc_qs.pop() if desc_qs else (obj_qs.pop() if obj_qs else {})
-        else:
-            q = obj_qs.pop() if obj_qs else (desc_qs.pop() if desc_qs else {})
-
+    import re
+    # Use the first 10 questions as received (frontend order)
+    for i, q in enumerate(_questions[:10]):
         row_cells = table_a.add_row().cells
         for j, w in enumerate(widths_a):
             row_cells[j].width = w
@@ -305,8 +311,6 @@ async def generate_docx(
 
         # Question text without any label prefix
         text = _first_non_empty(q, ['text', 'question_text', 'question', 'q', 'title', 'body', 'content'])
-        # Remove any leading 'D.' or 'O.' or similar prefix
-        import re
         if text:
             text = re.sub(r'^\s*[DO]\.[\s-]*', '', text, flags=re.IGNORECASE)
         row_cells[1].text = text if text else ""
@@ -336,49 +340,74 @@ async def generate_docx(
         idx += 1
     # PART-B
     add_bold_line("PART – B                          (5 x 16 = 80 Marks)", True, 12)
-    table_b = doc.add_table(rows=1, cols=7)
+    table_b = doc.add_table(rows=1, cols=5)
     table_b.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_b.autofit = False
+    table_b.left_indent = Inches(0.7)
     hdr_cells = table_b.rows[0].cells
     hdr_cells[0].text = "Q.No."
     hdr_cells[1].text = "Question"
     hdr_cells[2].text = "CO"
     hdr_cells[3].text = "BTL"
     hdr_cells[4].text = "Marks"
-    hdr_cells[5].text = "OR"
-    hdr_cells[6].text = " "
     for c in hdr_cells:
         for p in c.paragraphs:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for r in p.runs:
                 r.bold = True
-
-    # Column widths for Part-B
-    widths_b = [Inches(0.7), Inches(4.2), Inches(0.8), Inches(0.8), Inches(1.0), Inches(0.8), Inches(0.8)]
+    widths_b = [Inches(0.7), Inches(4.2), Inches(0.8), Inches(0.8), Inches(1.0)]
     for i, w in enumerate(widths_b):
         for row in table_b.rows:
             row.cells[i].width = w
+    # Render Part B with (a), OR row, (b) for each pair
+    b_pairs = []
+    temp_pair = []
     for q in _questions:
         if isinstance(q, dict) and q.get('part', '').upper() == 'B':
-            row_cells = table_b.add_row().cells
-            for i, w in enumerate([Inches(0.7), Inches(4.2), Inches(0.8), Inches(0.8), Inches(1.0), Inches(0.8), Inches(0.8)]):
-                row_cells[i].width = w
-            row_cells[0].text = str(q.get('number', ''))
-            row_cells[1].text = _first_non_empty(q, ['text','question_text','question','q','title','body','content'])
-            row_cells[2].text = _first_non_empty(q, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
-            row_cells[3].text = _first_non_empty(q, ['btl','bloom','bloom_level','bt','bt_level'])
-            row_cells[4].text = _first_non_empty(q, ['marks','mark','score','points'])
-            row_cells[5].text = "(OR)" if q.get('or', False) else ""
-            row_cells[6].text = ""
-            # Center numeric/small columns
-            for p in (
-                row_cells[0].paragraphs + row_cells[2].paragraphs + row_cells[3].paragraphs +
-                row_cells[4].paragraphs + row_cells[5].paragraphs + row_cells[6].paragraphs
-            ):
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        else:
-            # Optionally skip non-dict items
-            continue
+            temp_pair.append(q)
+            if len(temp_pair) == 2:
+                b_pairs.append(temp_pair)
+                temp_pair = []
+    for pair in b_pairs:
+        qa, qb = pair
+        # (a) row
+        row_a = table_b.add_row().cells
+        for i, w in enumerate(widths_b):
+            row_a[i].width = w
+        row_a[0].text = str(qa.get('baseNumber', qa.get('number', '')))
+        p_a = row_a[1].paragraphs[0]
+        p_a.paragraph_format.left_indent = Inches(0.7)
+        p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
+        row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+        row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
+        row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
+        for p in (
+            row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs
+        ):
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # OR row (spanning all columns, centered)
+        or_row = table_b.add_row().cells
+        or_row[0].merge(or_row[-1])
+        p_or = or_row[0].paragraphs[0]
+        p_or.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_or.add_run("(OR)").bold = True
+
+        # (b) row
+        row_b = table_b.add_row().cells
+        for i, w in enumerate(widths_b):
+            row_b[i].width = w
+        row_b[0].text = str(qb.get('baseNumber', qb.get('number', '')))
+        p_b = row_b[1].paragraphs[0]
+        p_b.paragraph_format.left_indent = Inches(0.7)
+        p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
+        row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+        row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
+        row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
+        for p in (
+            row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs
+        ):
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(" ")
     doc.add_paragraph("******************").bold = True
     # Footer

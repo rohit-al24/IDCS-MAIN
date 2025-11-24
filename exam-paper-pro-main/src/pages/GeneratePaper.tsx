@@ -66,35 +66,28 @@ const GeneratePaper = () => {
       const sections = template.sections as any[];
       let selectedQuestions: Question[] = [];
       sections.forEach((section) => {
-        const objectivePool = verifiedQuestions.filter((q) => q.type === "objective").sort(() => Math.random() - 0.5);
-        const descriptivePool = verifiedQuestions.filter((q) => q.type === "descriptive").sort(() => Math.random() - 0.5);
-        const total = section.objectiveCount + section.descriptiveCount;
-        let objIdx = 0, descIdx = 0;
+        // section.questions: [{ co: 'CO1', btl: 4, marks: 2, type: 'objective' }, ...]
         let sectionQuestions: Question[] = [];
-        for (let i = 0; i < total; i++) {
-          let q: Question | undefined;
-          if ((i + 1) % 2 === 0 && objIdx < section.objectiveCount) {
-            // Even: objective
-            q = objectivePool[objIdx++];
-            if (q) q.type = "objective";
-          } else if ((i + 1) % 2 === 1 && descIdx < section.descriptiveCount) {
-            // Odd: descriptive
-            q = descriptivePool[descIdx++];
-            if (q) q.type = "descriptive";
-          } else if (objIdx < section.objectiveCount) {
-            q = objectivePool[objIdx++];
-            if (q) q.type = "objective";
-          } else if (descIdx < section.descriptiveCount) {
-            q = descriptivePool[descIdx++];
-            if (q) q.type = "descriptive";
-          }
-          if (q) {
-            // Remove any 'D.' or 'O.' prefix from question text
-            if (q.question_text) {
-              q.question_text = q.question_text.replace(/^\s*[DO]\.[\s-]*/i, "");
+        if (section.questions && Array.isArray(section.questions)) {
+          section.questions.forEach((qSpec) => {
+            // Find all questions matching CO, BTL, marks, and type
+            const pool = verifiedQuestions.filter((q) => {
+              const coMatch = (q.course_outcomes || "").toUpperCase().includes((qSpec.co || "").toUpperCase());
+              const btlMatch = q.btl == qSpec.btl;
+              const marksMatch = q.marks == qSpec.marks;
+              const typeMatch = !qSpec.type || q.type === qSpec.type;
+              return coMatch && btlMatch && marksMatch && typeMatch;
+            });
+            // Randomly pick one if multiple
+            if (pool.length > 0) {
+              const chosen = pool[Math.floor(Math.random() * pool.length)];
+              // Remove any 'D.' or 'O.' prefix from question text
+              if (chosen.question_text) {
+                chosen.question_text = chosen.question_text.replace(/^\s*[DO]\.[\s-]*/i, "");
+              }
+              sectionQuestions.push(chosen);
             }
-            sectionQuestions.push(q);
-          }
+          });
         }
         selectedQuestions = [...selectedQuestions, ...sectionQuestions];
       });

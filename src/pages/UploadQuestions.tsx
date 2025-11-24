@@ -9,10 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Upload, Plus, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { saveAs } from "file-saver";
+import { supabase } from "@/integrations/supabase/client";
 
 type QuestionType = "objective" | "mcq" | "descriptive";
 type BTLLevel = 1 | 2 | 3;
@@ -84,7 +84,13 @@ const UploadQuestions = () => {
     const colIdx: Record<string, number> = {};
     let missingColumns: string[] = [];
     requiredColumns.forEach(col => {
-      const idx = header.findIndex(h => (h || "").toLowerCase() === col.toLowerCase());
+      let idx = header.findIndex(h => (h || "").toLowerCase() === col.toLowerCase());
+      // Special handling for 'Course Outcomes' with possible newlines/extra spaces
+      if (idx === -1 && col === "Course Outcomes") {
+        idx = header.findIndex(h =>
+          h && h.replace(/\s+/g, " ").replace(/\n|\r/g, " ").trim().toLowerCase() === "course outcomes"
+        );
+      }
       colIdx[col] = idx;
       if (idx === -1) missingColumns.push(col);
     });
@@ -99,7 +105,6 @@ const UploadQuestions = () => {
     }
 
     const parsed: Question[] = dataRows
-
       .filter(row => row && row.length > 0 && row[colIdx[requiredColumns[0]]] && row[colIdx[requiredColumns[0]]].toString().trim())
       .map((row, idx) => {
         // Get BTL Level as number
@@ -118,21 +123,57 @@ const UploadQuestions = () => {
         // Only include if type is recognized
         if (!type) return null;
 
+        // Normalize CO to uppercase and trim. Accept numeric 1-5 as CO1-CO5 and formats like 'CO 1'
+        let coRaw = row[colIdx["Course Outcomes"]];
+        let co: string | null = null;
+        if (coRaw !== undefined && coRaw !== null) {
+          const coStr = coRaw.toString().replace(/\n|\r/g, ' ').trim();
+          // try numeric
+          const numMatch = coStr.match(/^\s*([1-5])(?:\.0+)?\s*$/);
+          if (numMatch) {
+            co = `CO${numMatch[1]}`;
+          } else {
+            // find a digit 1-5 anywhere, or 'CO1' variants
+            const m = coStr.replace(/\s+/g, ' ').toUpperCase().match(/\b(?:CO\s*-?\s*|)([1-5])\b/);
+            if (m) co = `CO${m[1]}`;
+          }
+        }
+
         return {
           question_text: row[colIdx["Question Bank"]]?.toString().trim() || `Question ${idx + 1}`,
           type,
           btl,
           marks: parseInt(row[colIdx["Marks"]]) || 1,
-          course_outcomes: row[colIdx["Course Outcomes"]]?.toString().trim() || null,
+          course_outcomes: co,
           chapter: row[colIdx["Part"]]?.toString().trim() || null,
         };
       })
       .filter(Boolean); // Remove nulls for unrecognized types
 
     setQuestions(parsed);
-    toast({ title: "File uploaded", description: `${parsed.length} questions parsed from Excel` });
+
+    // Warn if any CO is missing either type
+    const CO_LIST = ["CO1", "CO2", "CO3", "CO4", "CO5"];
+    const missing: string[] = [];
+    for (const co of CO_LIST) {
+      const hasObj = parsed.some(q => q.course_outcomes === co && q.type === "objective");
+      const hasDesc = parsed.some(q => q.course_outcomes === co && q.type === "descriptive");
+      if (!hasObj) missing.push(`${co}-objective`);
+      if (!hasDesc) missing.push(`${co}-descriptive`);
+    }
+    if (missing.length > 0) {
+      toast({
+        title: "Warning",
+        description: `Missing for generator: ${missing.join(", ")}`,
+        variant: "destructive"
+      });
+    } else {
+      toast({ title: "File uploaded", description: `${parsed.length} questions parsed from Excel` });
+    }
   };
 
+  // No backend URL logic needed; use Supabase or client-side only
+  // Remove handleFileUploadBackend and resolveBackendBase
 
   const handleSelectQuestion = (idx: number) => {
     setSelectedQuestions((prev) =>
@@ -159,16 +200,16 @@ const UploadQuestions = () => {
       const questionsToInsert = toSave.map(q => ({
         user_id: user.id,
         question_text: q.question_text,
-        difficulty: "medium" as const,
-        options: q.options ? q.options : null,
+        type: q.type,
+        options: q.options || null,
         correct_answer: q.correct_answer || null,
-        answer_text: q.correct_answer || "",
+        answer_text: q.correct_answer || '',
         btl: q.btl,
         marks: q.marks,
-        status,
+        status: status as 'verified' | 'pending' | 'rejected',
         chapter: q.chapter || null,
         course_outcomes: q.course_outcomes || null,
-        type: q.type,
+        title: title || null,
       }));
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
       if (error) {
@@ -190,29 +231,29 @@ const UploadQuestions = () => {
         toast({ title: "Error", description: "Please login first", variant: "destructive" });
         return;
       }
-
+      if (questions.length === 0) {
+        toast({ title: 'No questions', description: 'Nothing to save.' });
+        return;
+      }
       const questionsToInsert = questions.map(q => ({
         user_id: user.id,
         question_text: q.question_text,
-        difficulty: "medium" as const,
-        options: q.options ? q.options : null,
+        type: q.type,
+        options: q.options || null,
         correct_answer: q.correct_answer || null,
-        answer_text: q.correct_answer || "",
+        answer_text: q.correct_answer || '',
         btl: q.btl,
         marks: q.marks,
-        status: "pending" as const,
+        status: 'pending' as 'pending',
         chapter: q.chapter || null,
         course_outcomes: q.course_outcomes || null,
-        type: q.type,
+        title: title || null,
       }));
-
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
-
       if (error) {
         console.error("Supabase insert error:", error);
         throw error;
       }
-
       toast({ title: "Success", description: "Questions saved successfully" });
       setIsTitleDialogOpen(false);
       navigate("/verify");
@@ -223,7 +264,15 @@ const UploadQuestions = () => {
   };
 
   const addManualQuestion = () => {
-    setQuestions([...questions, { ...manualQuestion }]);
+    if (!manualQuestion.course_outcomes || !/^CO[1-5]$/i.test(manualQuestion.course_outcomes.trim())) {
+      toast({
+        title: "Course Outcomes Required",
+        description: "Please enter Course Outcomes as CO1, CO2, CO3, CO4, or CO5.",
+        variant: "destructive"
+      });
+      return;
+    }
+    setQuestions([...questions, { ...manualQuestion, course_outcomes: manualQuestion.course_outcomes.trim().toUpperCase() }]);
     setManualQuestion({
       question_text: "",
       type: "objective",
@@ -539,7 +588,9 @@ const UploadQuestions = () => {
                           <TableCell className="capitalize">{q.type}</TableCell>
                           <TableCell>{q.btl}</TableCell>
                           <TableCell>{q.marks}</TableCell>
-                          <TableCell>{q.course_outcomes || "-"}</TableCell>
+                          <TableCell style={{ color: !q.course_outcomes ? 'red' : undefined, fontWeight: !q.course_outcomes ? 'bold' : undefined }}>
+                            {q.course_outcomes || "(Missing)"}
+                          </TableCell>
                           <TableCell>
                             <Button
                               variant="ghost"
@@ -553,6 +604,34 @@ const UploadQuestions = () => {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+                {/* CO/type summary */}
+                <div className="mt-6">
+                  <h4 className="font-semibold mb-2">CO/Type Summary</h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-max text-sm border border-gray-200">
+                      <thead>
+                        <tr>
+                          <th className="border px-2 py-1">CO</th>
+                          <th className="border px-2 py-1">Objective</th>
+                          <th className="border px-2 py-1">Descriptive</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {["CO1", "CO2", "CO3", "CO4", "CO5"].map(co => {
+                          const objCount = questions.filter(q => q.course_outcomes === co && q.type === "objective").length;
+                          const descCount = questions.filter(q => q.course_outcomes === co && q.type === "descriptive").length;
+                          return (
+                            <tr key={co}>
+                              <td className="border px-2 py-1 font-semibold">{co}</td>
+                              <td className="border px-2 py-1" style={{ color: objCount === 0 ? 'red' : undefined, fontWeight: objCount === 0 ? 'bold' : undefined }}>{objCount}</td>
+                              <td className="border px-2 py-1" style={{ color: descCount === 0 ? 'red' : undefined, fontWeight: descCount === 0 ? 'bold' : undefined }}>{descCount}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
