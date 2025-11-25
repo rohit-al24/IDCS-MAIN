@@ -1,4 +1,3 @@
-// ...existing code...
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -30,10 +29,99 @@ const VerifyQuestions = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // For select all/individual selection in unverified tab
   const [selectedUnverifiedIds, setSelectedUnverifiedIds] = useState<string[]>([]);
+  const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchQuestions();
   }, []);
+
+  // Build image object URLs for questions' image_url values.
+  useEffect(() => {
+    let mounted = true;
+    const urls: Record<string, string> = {};
+    const createdUrls: string[] = [];
+
+    const pngSig = new Uint8Array([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+    const jpgSig = new Uint8Array([0xff,0xd8,0xff]);
+
+    const findSignature = (buf: Uint8Array, sig: Uint8Array) => {
+      for (let i = 0; i <= buf.length - sig.length; i++) {
+        let ok = true;
+        for (let j = 0; j < sig.length; j++) {
+          if (buf[i + j] !== sig[j]) { ok = false; break; }
+        }
+        if (ok) return i;
+      }
+      return -1;
+    };
+
+    const processUrl = async (qId: string, url: string) => {
+      try {
+        if (!url) return;
+        if (url.startsWith('data:')) {
+          urls[qId] = url;
+          return;
+        }
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const contentType = res.headers.get('content-type') || '';
+        const arrBuf = await res.arrayBuffer();
+        const u8 = new Uint8Array(arrBuf);
+
+        // If server returns correct image content-type, use it directly
+        if (contentType.startsWith('image/')) {
+          const blob = new Blob([u8], { type: contentType.split(';')[0] });
+          const obj = URL.createObjectURL(blob);
+          createdUrls.push(obj);
+          urls[qId] = obj;
+          return;
+        }
+
+        // Otherwise try to find PNG/JPEG signatures inside the bytes and slice
+        let off = findSignature(u8, pngSig);
+        let mime = 'image/png';
+        if (off === -1) {
+          off = findSignature(u8, jpgSig);
+          mime = 'image/jpeg';
+        }
+        if (off >= 0) {
+          const sliced = u8.slice(off);
+          const blob = new Blob([sliced], { type: mime });
+          const obj = URL.createObjectURL(blob);
+          createdUrls.push(obj);
+          urls[qId] = obj;
+          return;
+        }
+
+        // Fallback: try to interpret as text and look for data:image base64 within
+        const text = new TextDecoder().decode(u8);
+        const m = text.match(/data:image\/(png|jpeg);base64,([A-Za-z0-9+\/=\n\r]+)/);
+        if (m) {
+          urls[qId] = `data:image/${m[1]};base64,${m[2].replace(/\s+/g, '')}`;
+          return;
+        }
+      } catch (err) {
+        // ignore per-image errors
+      }
+    };
+
+    (async () => {
+      const allQuestions = [...verifiedQuestions, ...unverifiedQuestions];
+      const tasks: Promise<void>[] = [];
+      for (const q of allQuestions) {
+        if (!q?.image_url) continue;
+        tasks.push(processUrl(q.id, q.image_url));
+      }
+      await Promise.all(tasks);
+      if (mounted) setImageSrcs(urls);
+    })();
+
+    return () => {
+      mounted = false;
+      // revoke created object URLs
+      createdUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    };
+  }, [verifiedQuestions, unverifiedQuestions]);
 
   // Reverse: unverifiedQuestions = verified, verifiedQuestions = pending
   const fetchQuestions = async () => {
@@ -182,9 +270,7 @@ const VerifyQuestions = () => {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>
-                              {/* Checkbox column */}
-                            </TableHead>
+                            <TableHead>{/* Checkbox column */}</TableHead>
                             <TableHead>#</TableHead>
                             <TableHead>Question Text</TableHead>
                             <TableHead>Type</TableHead>
@@ -211,7 +297,14 @@ const VerifyQuestions = () => {
                                 />
                               </TableCell>
                               <TableCell>{idx + 1}</TableCell>
-                              <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
+                              <TableCell className="max-w-md">
+                                <div className="flex flex-col gap-2">
+                                  <div className="truncate">{q.question_text}</div>
+                                  {(imageSrcs[q.id] || q.image_url) ? (
+                                    <img src={imageSrcs[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                  ) : null}
+                                </div>
+                              </TableCell>
                               <TableCell className="capitalize">{q.type}</TableCell>
                               <TableCell>{q['btl'] ?? '-'}</TableCell>
                               <TableCell>{q.marks ?? '-'}</TableCell>
@@ -289,6 +382,7 @@ const VerifyQuestions = () => {
                           <TableRow>
                             <TableHead></TableHead>
                             <TableHead>#</TableHead>
+                            <TableHead>Image</TableHead>
                             <TableHead>Question Text</TableHead>
                             <TableHead>Type</TableHead>
                             <TableHead>BTL</TableHead>
@@ -314,7 +408,27 @@ const VerifyQuestions = () => {
                                 />
                               </TableCell>
                               <TableCell>{idx + 1}</TableCell>
-                              <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
+                              <TableCell>
+                                {(imageSrcs[q.id] || q.image_url) ? (
+                                  (imageSrcs[q.id] || q.image_url).startsWith("data:") ? (
+                                    <img src={imageSrcs[q.id] || q.image_url} alt="Question" style={{ maxWidth: 60, maxHeight: 60, borderRadius: 4 }} />
+                                  ) : (
+                                    <a href={imageSrcs[q.id] || q.image_url} target="_blank" rel="noopener noreferrer">
+                                      <img src={imageSrcs[q.id] || q.image_url} alt="Question" style={{ maxWidth: 60, maxHeight: 60, borderRadius: 4 }} />
+                                    </a>
+                                  )
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="max-w-md">
+                                <div className="flex flex-col gap-2">
+                                  <div className="truncate">{q.question_text}</div>
+                                  {(imageSrcs[q.id] || q.image_url) ? (
+                                    <img src={imageSrcs[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                  ) : null}
+                                </div>
+                              </TableCell>
                               <TableCell className="capitalize">{q.type}</TableCell>
                               <TableCell>{q['btl'] ?? '-'}</TableCell>
                               <TableCell>{q.marks ?? '-'}</TableCell>

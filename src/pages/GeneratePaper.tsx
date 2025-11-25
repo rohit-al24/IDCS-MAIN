@@ -1,3 +1,78 @@
+// --- Image preview logic (copied from VerifyQuestions) ---
+import { useRef } from "react";
+
+type ImageSrcs = Record<string, string>;
+
+function useQuestionImages(questions: any[]): ImageSrcs {
+  const [imageSrcs, setImageSrcs] = useState<ImageSrcs>({});
+  const createdUrls = useRef<string[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const urls: ImageSrcs = {};
+    const pngSig = new Uint8Array([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+    const jpgSig = new Uint8Array([0xff,0xd8,0xff]);
+    const findSignature = (buf: Uint8Array, sig: Uint8Array) => {
+      for (let i = 0; i <= buf.length - sig.length; i++) {
+        let ok = true;
+        for (let j = 0; j < sig.length; j++) {
+          if (buf[i + j] !== sig[j]) { ok = false; break; }
+        }
+        if (ok) return i;
+      }
+      return -1;
+    };
+    const processUrl = async (qId: string, url: string) => {
+      try {
+        if (!url) return;
+        if (url.startsWith('data:')) { urls[qId] = url; return; }
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const contentType = res.headers.get('content-type') || '';
+        const arrBuf = await res.arrayBuffer();
+        const u8 = new Uint8Array(arrBuf);
+        if (contentType.startsWith('image/')) {
+          const blob = new Blob([u8], { type: contentType.split(';')[0] });
+          const obj = URL.createObjectURL(blob);
+          createdUrls.current.push(obj);
+          urls[qId] = obj;
+          return;
+        }
+        let off = findSignature(u8, pngSig);
+        let mime = 'image/png';
+        if (off === -1) { off = findSignature(u8, jpgSig); mime = 'image/jpeg'; }
+        if (off >= 0) {
+          const sliced = u8.slice(off);
+          const blob = new Blob([sliced], { type: mime });
+          const obj = URL.createObjectURL(blob);
+          createdUrls.current.push(obj);
+          urls[qId] = obj;
+          return;
+        }
+        const text = new TextDecoder().decode(u8);
+        const m = text.match(/data:image\/(png|jpeg);base64,([A-Za-z0-9+\/\=\n\r]+)/);
+        if (m) {
+          urls[qId] = `data:image/${m[1]};base64,${m[2].replace(/\s+/g, '')}`;
+          return;
+        }
+      } catch (err) {}
+    };
+    (async () => {
+      const tasks: Promise<void>[] = [];
+      for (const q of questions) {
+        if (!q?.image_url) continue;
+        tasks.push(processUrl(q.id, q.image_url));
+      }
+      await Promise.all(tasks);
+      if (mounted) setImageSrcs(urls);
+    })();
+    return () => {
+      mounted = false;
+      createdUrls.current.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    };
+  }, [questions]);
+  return imageSrcs;
+}
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -31,6 +106,10 @@ const GeneratePaper = () => {
   const [questionBanks, setQuestionBanks] = useState<string[]>([]);
   const [selectedQuestionBank, setSelectedQuestionBank] = useState<string>("");
   const [questionBankSearch, setQuestionBankSearch] = useState<string>("");
+
+  // --- Image hooks must be at the top level ---
+  const imageSrcs1 = useQuestionImages(generatedQuestions1);
+  const imageSrcs2 = useQuestionImages(generatedQuestions2);
 
   useEffect(() => {
     fetchTemplates();
@@ -87,6 +166,7 @@ const GeneratePaper = () => {
     const pickedIds = new Set<string>(excludeIds);
     const CO_LIST = ["CO1", "CO2", "CO3", "CO4", "CO5"];
     let coMisses: string[] = [];
+    let partBMisses: { co: string, btl?: string, baseNumber: number }[] = [];
     // Shared BTL for CO3-CO5
     const candidateBtls = [3,4,5];
     let chosenBtl: number | null = null;
@@ -133,10 +213,37 @@ const GeneratePaper = () => {
       (qDesc as any).co = (qDesc as any).course_outcomes;
       partAQuestions.push(qDesc);
     }
+    let partAMisses: { co: string, type: string, idx: number }[] = [];
     if (partAQuestions.length < 10) {
-      return { generated: [], answerKey: [], pickedIds };
+      // For each CO and type, if missing, add a placeholder
+      const sectionAConfig = (template.sections as any[]).find((s: any) => (s.name || '').toLowerCase().includes('section a'));
+      const sectionAQs: any[] = sectionAConfig?.questions || [];
+      const tplObjectives = sectionAQs.filter(q => q.type === 'objective');
+      const tplDescriptives = sectionAQs.filter(q => q.type === 'descriptive');
+      let objPtr = 0, descPtr = 0;
+      for (const [index, co] of CO_LIST.entries()) {
+        const enforceBtl = index >= 2;
+        // Objective
+        const poolObj = verifiedQuestions.filter(q => {
+          const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
+          const qbtl = Number((q as any).btl);
+          return q.type === 'objective' && qco === co.toLowerCase() && (!enforceBtl || qbtl === chosenBtl) && Number(q.marks) === Number(sectionAConfig?.marksPerQuestion || 2) && !pickedIds.has(q.id);
+        });
+        if (poolObj.length === 0) {
+          partAMisses.push({ co, type: 'objective', idx: objPtr });
+        } else { objPtr++; }
+        // Descriptive
+        const poolDesc = verifiedQuestions.filter(q => {
+          const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
+          const qbtl = Number((q as any).btl);
+          return q.type === 'descriptive' && qco === co.toLowerCase() && (!enforceBtl || qbtl === chosenBtl) && Number(q.marks) === Number(sectionAConfig?.marksPerQuestion || 2) && !pickedIds.has(q.id);
+        });
+        if (poolDesc.length === 0) {
+          partAMisses.push({ co, type: 'descriptive', idx: descPtr });
+        } else { descPtr++; }
+      }
     }
-    const generated: (Question & { sub?: 'a'|'b'; baseNumber?: number; part?: 'A'|'B'; or?: boolean })[] = [];
+    const generated: (Question & { sub?: 'a'|'b'; baseNumber?: number; part?: 'A'|'B'; or?: boolean, _insufficient?: boolean, _insufficientCo?: string, _insufficientType?: string })[] = [];
     // Assign numbering and marks (objective/descriptive lists for alignment)
     const sectionAConfig = (template.sections as any[]).find((s: any) => (s.name || '').toLowerCase().includes('section a'));
     const sectionAQs: any[] = sectionAConfig?.questions || [];
@@ -144,20 +251,20 @@ const GeneratePaper = () => {
     const tplDescriptives = sectionAQs.filter(q => q.type === 'descriptive');
     let objPtr = 0, descPtr = 0;
     const defaultA = sectionAConfig?.marksPerQuestion || 2;
-    partAQuestions.forEach((q, idx) => {
-      (q as any).part = 'A';
-      (q as any).baseNumber = idx + 1;
-      let assignedMarks = defaultA;
-      if (q.type === 'objective') {
-        if (tplObjectives[objPtr]?.marks) assignedMarks = tplObjectives[objPtr].marks;
-        objPtr++;
-      } else if (q.type === 'descriptive') {
-        if (tplDescriptives[descPtr]?.marks) assignedMarks = tplDescriptives[descPtr].marks;
-        descPtr++;
+    let aIdx = 0;
+    for (let i = 0; i < 10; i++) {
+      if (partAMisses.some(m => m.idx === i - (partAMisses.filter(m => m.idx < i).length) && m.type === (i % 2 === 0 ? 'objective' : 'descriptive'))) {
+        // Insert placeholder for missing question
+        const miss = partAMisses.find(m => m.idx === i - (partAMisses.filter(m => m.idx < i).length) && m.type === (i % 2 === 0 ? 'objective' : 'descriptive'));
+        generated.push({ part: 'A', baseNumber: i + 1, sub: undefined, marks: defaultA, co: miss?.co, btl: '', question_text: '', _insufficient: true, _insufficientCo: miss?.co, _insufficientType: miss?.type } as any);
+      } else if (partAQuestions[aIdx]) {
+        (partAQuestions[aIdx] as any).part = 'A';
+        (partAQuestions[aIdx] as any).baseNumber = i + 1;
+        (partAQuestions[aIdx] as any).marks = defaultA;
+        generated.push(partAQuestions[aIdx] as any);
+        aIdx++;
       }
-      (q as any).marks = assignedMarks;
-      generated.push(q as any);
-    });
+    }
     // Part B pairs
     const sectionB = (template.sections as any[]).find((s: any) => (s.name || '').toLowerCase().includes('section b'));
     if (sectionB) {
@@ -203,7 +310,8 @@ const GeneratePaper = () => {
             (qa as any).marks = config.marks || 16;
             generated.push(qa as any);
             // Insert empty placeholder for B
-            generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '' } as any);
+            generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+            partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
           }
         } else if (pool.length === 1) {
           qa = pool[0];
@@ -215,11 +323,13 @@ const GeneratePaper = () => {
           (qa as any).marks = config.marks || 16;
           generated.push(qa as any);
           // Insert empty placeholder for B
-          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '' } as any);
+          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         } else {
           // Insert empty placeholders for both A and B
-          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '' } as any);
-          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '' } as any);
+          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         }
       }
     }
@@ -227,7 +337,7 @@ const GeneratePaper = () => {
       questionNumber: (q as any).baseNumber ? `${(q as any).baseNumber}${(q as any).sub ? '.' + (q as any).sub : ''}` : '?',
       answer: (q as any).correct_answer || ''
     }));
-    return { generated, answerKey, pickedIds };
+    return { generated, answerKey, pickedIds, partBMisses, partAMisses };
   };
 
   const generatePaper = async () => {
@@ -316,12 +426,14 @@ const GeneratePaper = () => {
     if (!/^https?:\/\//i.test(raw)) return `http://${raw}`; // prefix scheme if missing
     return raw.replace(/\/$/, '');
   };
-  const primaryBase = sanitizeBase(envBackend) || 'https://idcs-main-p9el.onrender.com';
+  const primaryBase = sanitizeBase(envBackend) || 'http://127.0.0.1:4000';
   const candidateBases = [primaryBase, 'http://localhost:8000'];
   const [activeBackend, setActiveBackend] = useState<string>(primaryBase);
 
   const downloadPaper = async (questions: any[], label: string) => {
     const template = templates.find((t) => t.id === selectedTemplateId);
+    // Use the selected question bank name for file naming
+    const qnBankName = selectedQuestionBank || "Question_Bank";
     const banner = template?.name || "Question Paper";
     const totalMarks = template?.total_marks;
     const instructions = template?.instructions || "Answer all questions";
@@ -338,7 +450,34 @@ const GeneratePaper = () => {
         semester: "Second Semester",
       };
       // Map questions to backend format
-      const mapped = questions.map((q: any) => ({
+      // Helper to convert image URL to data URL (base64)
+
+      async function toDataUrl(url: string | null | undefined): Promise<string | null> {
+        if (!url) return null;
+        if (url.startsWith('data:image/')) return url;
+        try {
+          // Always fetch with credentials for Supabase or protected URLs
+          const res = await fetch(url, { credentials: 'include' });
+          if (!res.ok) return null;
+          const blob = await res.blob();
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          return null;
+        }
+      }
+
+      // Convert all images to data URLs before sending (prefer preview object-URLs)
+      const mapped = await Promise.all(questions.map(async (q: any) => {
+        // Prefer the preview object URL if available (generatedQuestions1/2 views)
+        let src: string | null = q.image_url || null;
+        if (questions === generatedQuestions1) src = (imageSrcs1 as any)[q.id] || src;
+        else if (questions === generatedQuestions2) src = (imageSrcs2 as any)[q.id] || src;
+        return ({
         number: q.baseNumber,
         sub: q.sub || undefined,
         text: q.question_text,
@@ -347,6 +486,8 @@ const GeneratePaper = () => {
         marks: q.marks,
         part: q.part || (q.baseNumber <= 10 ? 'A' : 'B'),
         or: !!q.or,
+        image_url: await toDataUrl(src || null),
+      });
       }));
       // Prepare form data
       const formData = new FormData();
@@ -361,7 +502,9 @@ const GeneratePaper = () => {
           const res = await fetch(url, { method: 'POST', body: formData });
           if (res.ok) {
             const blob = await res.blob();
-            saveAs(blob, `question_paper_${label.replace(/\s+/g,'_')}.docx`);
+            // Use the question bank name as the file name
+            const safeQnBank = (qnBankName || 'Question_Bank').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '_');
+            saveAs(blob, `${safeQnBank}_${label.replace(/\s+/g,'_')}.docx`);
             if (base !== activeBackend) setActiveBackend(base);
             toast({ title: 'Downloaded', description: `DOCX (${label}) via ${base}`, variant: 'default' });
             success = true; break;
@@ -397,7 +540,8 @@ const GeneratePaper = () => {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Question Paper");
       const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      saveAs(new Blob([wbout], { type: "application/octet-stream" }), `question_paper_${label.replace(/\s+/g,'_')}.xlsx`);
+      const safeQnBank = (qnBankName || 'Question_Bank').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '_');
+      saveAs(new Blob([wbout], { type: "application/octet-stream" }), `${safeQnBank}_${label.replace(/\s+/g,'_')}.xlsx`);
     }
   };
 
@@ -477,64 +621,113 @@ const GeneratePaper = () => {
 
           {isGenerated && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[{label:'Copy 1', questions: generatedQuestions1, answerKey: answerKey1}, {label:'Copy 2', questions: generatedQuestions2, answerKey: answerKey2}].map((copy, i) => (
-                <div key={i} className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />{copy.label}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="bg-muted p-4 rounded-lg">
-                          <p className="text-sm text-muted-foreground mb-2">Preview</p>
-                          <p className="font-semibold mb-2">Total Questions: {copy.questions.length}</p>
-                          <p className="text-sm">Objective: {copy.questions.filter((q:any)=>q.type==='objective').length} | Descriptive: {copy.questions.filter((q:any)=>q.type==='descriptive').length}</p>
-                        </div>
-                        <div className="space-y-3 max-h-96 overflow-y-auto">
-                          {copy.questions.map((q:any, idx:number) => (
-                            <div key={idx} className="border rounded-lg p-4">
-                              <p className="font-semibold mb-2">Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && copy.questions.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}</p>
-                              {q.options && (
-                                <div className="ml-4 space-y-1 text-sm">
-                                  <p>A) {(q.options as any).A}</p>
-                                  <p>B) {(q.options as any).B}</p>
-                                  <p>C) {(q.options as any).C}</p>
-                                  <p>D) {(q.options as any).D}</p>
-                                </div>
-                              )}
-                              {q.or && <p className="text-center text-xs font-semibold mt-2">(OR)</p>}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <Label>Download Format</Label>
-                          <Select value={downloadFormat} onValueChange={v=>setDownloadFormat(v as 'word'|'excel')}>
-                            <SelectTrigger className="w-40"><SelectValue placeholder="Select format" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="word">Word (.docx)</SelectItem>
-                              <SelectItem value="excel">Excel (.xlsx)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Button onClick={()=>downloadPaper(copy.questions, copy.label)}><Download className="w-4 h-4 mr-2"/>Download {copy.label}</Button>
-                        </div>
+              {/* Copy 1 */}
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Copy 1</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="bg-muted p-4 rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-2">Preview</p>
+                        <p className="font-semibold mb-2">Total Questions: {generatedQuestions1.length}</p>
+                        <p className="text-sm">Objective: {generatedQuestions1.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions1.filter((q:any)=>q.type==='descriptive').length}</p>
                       </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader><CardTitle className="flex items-center gap-2"><Key className="w-5 h-5" />{copy.label} Answer Key</CardTitle></CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
-                        {copy.answerKey.map(item => (
-                          <div key={item.questionNumber} className="flex items-center gap-2 text-sm"><span className="font-semibold">Q{item.questionNumber}:</span><span className="bg-primary/10 px-2 py-1 rounded">{item.answer}</span></div>
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {generatedQuestions1.map((q:any, idx:number) => (
+                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''}`}>
+                            <div className="font-semibold mb-2 flex flex-col gap-2">
+                              <span>
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                              </span>
+                              {(imageSrcs1[q.id] || q.image_url) ? (
+                                <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                              ) : null}
+                            </div>
+                            {q.options && (
+                              <div className="ml-4 space-y-1 text-sm">
+                                <p>A) {(q.options as any).A}</p>
+                                <p>B) {(q.options as any).B}</p>
+                                <p>C) {(q.options as any).C}</p>
+                                <p>D) {(q.options as any).D}</p>
+                              </div>
+                            )}
+                            {q.or && <p className="text-center text-xs font-semibold mt-2">(OR)</p>}
+                          </div>
                         ))}
                       </div>
-                      <Button variant="outline" className="mt-4 w-full" onClick={()=>downloadAnswerKey(copy.answerKey, copy.label)}><Download className="w-4 h-4 mr-2"/>Download {copy.label} Key</Button>
-                    </CardContent>
-                  </Card>
-                </div>
-              ))}
+                      <div className="flex items-center gap-4">
+                        <Label>Download Format</Label>
+                        <Select value={downloadFormat} onValueChange={v=>setDownloadFormat(v as 'word'|'excel')}>
+                          <SelectTrigger className="w-40"><SelectValue placeholder="Select format" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="word">Word</SelectItem>
+                            <SelectItem value="excel">Excel</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" onClick={()=>downloadPaper(generatedQuestions1, 'Copy 1')}><Download className="w-4 h-4 mr-2" />Download</Button>
+                        <Button variant="outline" onClick={()=>downloadAnswerKey(answerKey1, 'Copy 1')}><Key className="w-4 h-4 mr-2" />Answer Key</Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              {/* Copy 2 */}
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Copy 2</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="bg-muted p-4 rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-2">Preview</p>
+                        <p className="font-semibold mb-2">Total Questions: {generatedQuestions2.length}</p>
+                        <p className="text-sm">Objective: {generatedQuestions2.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions2.filter((q:any)=>q.type==='descriptive').length}</p>
+                      </div>
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {generatedQuestions2.map((q:any, idx:number) => (
+                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''}`}>
+                            <div className="font-semibold mb-2 flex flex-col gap-2">
+                              <span>
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                              </span>
+                              {(imageSrcs2[q.id] || q.image_url) ? (
+                                <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                              ) : null}
+                            </div>
+                            {q.options && (
+                              <div className="ml-4 space-y-1 text-sm">
+                                <p>A) {(q.options as any).A}</p>
+                                <p>B) {(q.options as any).B}</p>
+                                <p>C) {(q.options as any).C}</p>
+                                <p>D) {(q.options as any).D}</p>
+                              </div>
+                            )}
+                            {q.or && <p className="text-center text-xs font-semibold mt-2">(OR)</p>}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <Label>Download Format</Label>
+                        <Select value={downloadFormat} onValueChange={v=>setDownloadFormat(v as 'word'|'excel')}>
+                          <SelectTrigger className="w-40"><SelectValue placeholder="Select format" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="word">Word</SelectItem>
+                            <SelectItem value="excel">Excel</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" onClick={()=>downloadPaper(generatedQuestions2, 'Copy 2')}><Download className="w-4 h-4 mr-2" />Download</Button>
+                        <Button variant="outline" onClick={()=>downloadAnswerKey(answerKey2, 'Copy 2')}><Key className="w-4 h-4 mr-2" />Answer Key</Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
+
         </div>
       </main>
     </div>

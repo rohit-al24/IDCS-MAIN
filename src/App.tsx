@@ -1,6 +1,9 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from "@/components/ui/sidebar";
+import { NavLink } from "@/components/NavLink";
+import { FileUp, FileText, Wand2, Shield, Home, LogIn } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
@@ -12,6 +15,7 @@ import Templates from "./pages/Templates";
 import GeneratePaper from "./pages/GeneratePaper";
 import NotFound from "./pages/NotFound";
 import TemplateUploadPage from "./pages/TemplateUploadPage";
+import ManageQuestionsPage from "./pages/ManageQuestionsPage";
 import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
 import React, { useState } from "react";
 import { saveAs } from "file-saver";
@@ -22,92 +26,96 @@ const queryClient = new QueryClient();
 
 const BANNER_TEXT = "Exam Paper Banner";
 
+
 function App() {
-  const [exportFormat, setExportFormat] = useState<"word" | "excel">("word");
-  const questions = [
-    { question: "What is React?", marks: 5 },
-    { question: "Explain useState hook.", marks: 5 },
-  ];
-
-  const handleExport = async () => {
-    if (exportFormat === "word") {
-      const doc = new Document({
-        sections: [
-          {
-            children: [
-              new Paragraph({
-                children: [
-                  new TextRun({ text: BANNER_TEXT, bold: true, size: 36 }),
-                ],
-                spacing: { after: 200 },
-              }),
-              ...questions.map(
-                (q, idx) =>
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: `${idx + 1}. ${q.question} (${q.marks} marks)`,
-                        size: 28,
-                      }),
-                    ],
-                  })
-              ),
-            ],
-          },
-        ],
-      });
-      const blob = await Packer.toBlob(doc);
-      saveAs(blob, "question-paper.docx");
-    } else if (exportFormat === "excel") {
-      const wsData = [
-        [BANNER_TEXT],
-        [],
-        ["No.", "Question", "Marks"],
-        ...questions.map((q, idx) => [idx + 1, q.question, q.marks]),
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Exam Paper");
-      const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      saveAs(new Blob([wbout], { type: "application/octet-stream" }), "question-paper.xlsx");
-    }
-  };
-
   return (
-    <div>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/upload" element={<UploadQuestions />} />
-              <Route path="/verify" element={<VerifyQuestions />} />
-              <Route path="/templates" element={<Templates />} />
-              <Route path="/upload-template" element={<TemplateUploadPage />} />
-              <Route path="/review-template" element={<TemplateQuestionReviewPage />} />
-              <Route path="/generate" element={<GeneratePaper />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </QueryClientProvider>
-      <div style={{ marginBottom: 16 }}>
-        <select
-          value={exportFormat}
-          onChange={e => setExportFormat(e.target.value as "word" | "excel")}
-        >
-          <option value="word">Word (.docx)</option>
-          <option value="excel">Excel (.xlsx)</option>
-        </select>
-        <button onClick={handleExport} style={{ marginLeft: 8 }}>
-          Export Question Paper
-        </button>
-      </div>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <SidebarProvider>
+            <div className="flex min-h-screen w-full">
+              <Sidebar side="left" collapsible="offcanvas">
+                <SidebarHeader>
+                  <div className="bg-primary flex items-center gap-3 px-2 py-2 rounded-b-xl shadow-md">
+                    
+                    <span className="text-3xl font-extrabold text-primary-foreground tracking-wide">IDCS KR</span>
+                  </div>
+                </SidebarHeader>
+                <SidebarContent>
+                  <SidebarGroup>
+                    <SidebarGroupLabel>Main</SidebarGroupLabel>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Home className="w-4 h-4" />Home</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/login" activeClassName="font-bold text-primary" className="flex items-center gap-2"><LogIn className="w-4 h-4" />Login</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/dashboard" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileText className="w-4 h-4" />Dashboard</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/upload" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileUp className="w-4 h-4" />Upload</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/verify" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Shield className="w-4 h-4" />Verify</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/templates" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileText className="w-4 h-4" />Templates</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/manage-questions" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileUp className="w-4 h-4" />Manage Questions</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/review-template" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Shield className="w-4 h-4" />Review Template</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/generate" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Wand2 className="w-4 h-4" />Generate</NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                  </SidebarGroup>
+                </SidebarContent>
+                <SidebarSeparator />
+              </Sidebar>
+              <main className="flex-1 min-w-0 overflow-auto">
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/upload" element={<UploadQuestions />} />
+                  <Route path="/verify" element={<VerifyQuestions />} />
+                  <Route path="/templates" element={<Templates />} />
+                  <Route path="/manage-questions" element={<ManageQuestionsPage />} />
+                  <Route path="/review-template" element={<TemplateQuestionReviewPage />} />
+                  <Route path="/generate" element={<GeneratePaper />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </main>
+            </div>
+          </SidebarProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 }
 

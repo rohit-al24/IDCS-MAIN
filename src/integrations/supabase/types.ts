@@ -72,6 +72,7 @@ export type Database = {
           title: string | null
           answer_text: string | null
           btl: number | null
+          image_url: string | null
         }
         Insert: {
           chapter?: string | null
@@ -84,7 +85,7 @@ export type Database = {
           question_text: string
           status?: Database["public"]["Enums"]["question_status"]
           topic?: string | null
-          type: Database["public"]["Enums"]["question_type"]
+          type?: Database["public"]["Enums"]["question_type"]
           unit?: string | null
           updated_at?: string | null
           user_id: string
@@ -92,6 +93,7 @@ export type Database = {
           title?: string | null
           answer_text?: string | null
           btl?: number | null
+          image_url?: string | null
         }
         Update: {
           chapter?: string | null
@@ -112,6 +114,7 @@ export type Database = {
           title?: string | null
           answer_text?: string | null
           btl?: number | null
+          image_url?: string | null
         }
         Relationships: []
       }

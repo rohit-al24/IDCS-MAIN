@@ -30,6 +30,12 @@ interface Question {
   topic?: string | null;
   chapter?: string | null;
   course_outcomes?: string | null;
+  image?: string | null;
+  // debug fields returned from backend
+  image_present?: boolean | null;
+  image_anchor_row?: number | null;
+  image_anchor_col?: number | null;
+  image_mapped_row?: number | null;
 }
 
 const UploadQuestions = () => {
@@ -60,123 +66,27 @@ const UploadQuestions = () => {
     fileNameRef.current = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
     setTitle(fileNameRef.current);
 
-    const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data, { type: "array" });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-    // Use the third row (index 2) as header
-    const header: string[] = (rows[2] || []).map((h: any) => (h ? h.toString().trim() : ""));
-    // Only consider the next rows as data
-    const dataRows = rows.slice(3);
-
-    // Define the six columns to extract (adjust names as per your Excel header)
-    const requiredColumns = [
-      "Question Bank", // question_text
-      "TYPE",          // type
-      "BTL Level",     // btl
-      "Course Outcomes", // course_outcomes
-      "Marks",         // marks
-      "Part"           // chapter (or as needed)
-    ];
-
-    // Map header indices, handle undefined headers
-    const colIdx: Record<string, number> = {};
-    let missingColumns: string[] = [];
-    requiredColumns.forEach(col => {
-      let idx = header.findIndex(h => (h || "").toLowerCase() === col.toLowerCase());
-      // Special handling for 'Course Outcomes' with possible newlines/extra spaces
-      if (idx === -1 && col === "Course Outcomes") {
-        idx = header.findIndex(h =>
-          h && h.replace(/\s+/g, " ").replace(/\n|\r/g, " ").trim().toLowerCase() === "course outcomes"
-        );
+    // Upload file to backend for parsing (to get images too)
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/upload-questions-excel/", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        toast({ title: "Error", description: `Backend error: ${res.statusText}` });
+        return;
       }
-      colIdx[col] = idx;
-      if (idx === -1) missingColumns.push(col);
-    });
-
-    if (missingColumns.length > 0) {
-      toast({
-        title: "Error",
-        description: `Missing columns in Excel: ${missingColumns.join(", ")}`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const parsed: Question[] = dataRows
-      .filter(row => row && row.length > 0 && row[colIdx[requiredColumns[0]]] && row[colIdx[requiredColumns[0]]].toString().trim())
-      .map((row, idx) => {
-        // Robust BTL parsing: extract all numbers and use the highest (matches backend logic)
-        let btl: BTLLevel = 2;
-        const rawBTLCell = row[colIdx["BTL Level"]];
-        if (rawBTLCell !== undefined && rawBTLCell !== null) {
-          const btlStr = rawBTLCell.toString().toUpperCase();
-          const nums = btlStr.match(/\d+/g);
-          if (nums && nums.length) {
-            const highest = nums.map(n => parseInt(n, 10)).sort((a,b) => b - a)[0];
-            if ([1,2,3,4,5,6].includes(highest)) {
-              btl = highest as BTLLevel;
-            }
-          }
-        }
-
-        // Determine type from TYPE column
-        let type: QuestionType | undefined = undefined;
-        const typeStr = row[colIdx["TYPE"]]?.toString().trim().toLowerCase();
-        if (typeStr === "o") type = "objective";
-        else if (typeStr === "d") type = "descriptive";
-
-        // Only include if type is recognized
-        if (!type) return null;
-
-        // Normalize CO to uppercase and trim. Accept numeric 1-5 as CO1-CO5 and formats like 'CO 1'
-        let coRaw = row[colIdx["Course Outcomes"]];
-        let co: string | null = null;
-        if (coRaw !== undefined && coRaw !== null) {
-          const coStr = coRaw.toString().replace(/\n|\r/g, ' ').trim();
-          // try numeric
-          const numMatch = coStr.match(/^\s*([1-5])(?:\.0+)?\s*$/);
-          if (numMatch) {
-            co = `CO${numMatch[1]}`;
-          } else {
-            // find a digit 1-5 anywhere, or 'CO1' variants
-            const m = coStr.replace(/\s+/g, ' ').toUpperCase().match(/\b(?:CO\s*-?\s*|)([1-5])\b/);
-            if (m) co = `CO${m[1]}`;
-          }
-        }
-
-        return {
-          question_text: row[colIdx["Question Bank"]]?.toString().trim() || `Question ${idx + 1}`,
-          type,
-          btl,
-          marks: parseInt(row[colIdx["Marks"]]) || 1,
-          course_outcomes: co,
-          chapter: row[colIdx["Part"]]?.toString().trim() || null,
-        };
-      })
-      .filter(Boolean); // Remove nulls for unrecognized types
-
-    setQuestions(parsed);
-
-    // Warn if any CO is missing either type
-    const CO_LIST = ["CO1", "CO2", "CO3", "CO4", "CO5"];
-    const missing: string[] = [];
-    for (const co of CO_LIST) {
-      const hasObj = parsed.some(q => q.course_outcomes === co && q.type === "objective");
-      const hasDesc = parsed.some(q => q.course_outcomes === co && q.type === "descriptive");
-      if (!hasObj) missing.push(`${co}-objective`);
-      if (!hasDesc) missing.push(`${co}-descriptive`);
-    }
-    if (missing.length > 0) {
-      toast({
-        title: "Warning",
-        description: `Missing for generator: ${missing.join(", ")}`,
-        variant: "destructive"
-      });
-    } else {
-      toast({ title: "File uploaded", description: `${parsed.length} questions parsed from Excel` });
+      const result = await res.json();
+      if (result.questions && Array.isArray(result.questions)) {
+        setQuestions(result.questions);
+        toast({ title: "File uploaded", description: `${result.questions.length} questions parsed from Excel` });
+      } else {
+        toast({ title: "Error", description: "No questions found in file." });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: "Failed to upload or parse file", variant: "destructive" });
     }
   };
 
@@ -205,26 +115,100 @@ const UploadQuestions = () => {
         toast({ title: "No questions selected", description: "Please select at least one question." });
         return;
       }
-      const questionsToInsert = toSave.map(q => ({
-        user_id: user.id,
-        question_text: q.question_text,
-        type: q.type,
-        options: q.options || null,
-        correct_answer: q.correct_answer || null,
-        answer_text: q.correct_answer || '',
-        btl: q.btl,
-        marks: q.marks,
-        status: status as 'verified' | 'pending' | 'rejected',
-        chapter: q.chapter || null,
-        course_outcomes: q.course_outcomes || null,
-        title: title || null,
-      }));
+      // upload images to Supabase Storage and get image_url for each question (if present)
+      const bucket = 'question-images';
+      const uploadImage = async (dataUrl: string, key: string) => {
+        try {
+          console.log('[uploadImage] Using bucket:', bucket, 'key:', key);
+          if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+            console.warn('[uploadImage] Not a valid image data URL:', dataUrl?.slice(0, 100));
+            return null;
+          }
+          // Log the prefix and first 100 chars for debug
+          console.log('[uploadImage] dataUrl prefix:', dataUrl.slice(0, 30));
+          const arr = dataUrl.split(',');
+          if (arr.length < 2) {
+            console.warn('[uploadImage] Malformed dataUrl:', dataUrl.slice(0, 100));
+            return null;
+          }
+          const mimeMatch = arr[0].match(/:(.*?);/);
+          const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+          const bstr = atob(arr[1]);
+          // Detect and remove multipart boundary preamble accidentally embedded
+          // Look for PNG or JPEG signature and discard any preceding text noise.
+          const findSignatureOffset = (): number => {
+            const sigPNG = '\\x89PNG\\r\\n\\x1A\\n';
+            const sigJPEG = '\\xFF\\xD8\\xFF';
+            const idxPNG = bstr.indexOf(sigPNG);
+            const idxJPEG = bstr.indexOf(sigJPEG);
+            let best = -1;
+            if (idxPNG >= 0) best = idxPNG;
+            if (idxJPEG >= 0 && (best === -1 || idxJPEG < best)) best = idxJPEG;
+            return best;
+          };
+          let cleanBstr = bstr;
+          if (/WebKitFormBoundary/.test(bstr)) {
+            const off = findSignatureOffset();
+            if (off > 0) {
+              console.warn('[uploadImage] Stripping multipart boundary, signature at', off);
+              cleanBstr = bstr.slice(off);
+            } else {
+              console.warn('[uploadImage] Boundary detected but no signature found; using original bytes');
+            }
+          }
+          let n = bstr.length;
+          const u8arr = new Uint8Array(cleanBstr.length);
+          for (let i = 0; i < cleanBstr.length; i++) {
+            u8arr[i] = cleanBstr.charCodeAt(i);
+          }
+          const file = new File([u8arr], key, { type: mime });
+          const path = `${key}`;
+          const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
+          if (upErr) {
+            console.error('Storage upload error', upErr);
+            return null;
+          }
+          const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path);
+          console.log('[uploadImage] publicData:', publicData);
+          return publicData?.publicUrl || null;
+        } catch (err) {
+          console.error('uploadImage failed', err);
+          return null;
+        }
+      };
+
+      // prepare insert array with image_url resolved
+      const questionsToInsert = [] as any[];
+      for (let i = 0; i < toSave.length; i++) {
+        const q = toSave[i];
+        let image_url = null;
+        if (q.image) {
+          // create a predictable key: title + index + timestamp
+          const key = `${(title || 'uploads').replace(/[^a-z0-9-_]/gi, '_')}/${Date.now()}_${i}.png`;
+          image_url = await uploadImage(q.image, key);
+        }
+        questionsToInsert.push({
+          user_id: user.id,
+          question_text: q.question_text,
+          type: q.type,
+          options: q.options || null,
+          correct_answer: q.correct_answer || null,
+          answer_text: q.correct_answer || '',
+          btl: q.btl,
+          marks: q.marks,
+          status: status as 'verified' | 'pending' | 'rejected',
+          chapter: q.chapter || null,
+          course_outcomes: q.course_outcomes || null,
+          title: title || null,
+          image_url,
+        });
+      }
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
       if (error) {
         console.error("Supabase insert error:", error);
         throw error;
       }
-      toast({ title: "Success", description: `Questions saved as ${status}` });
+      toast({ title: "Success", description: `Saved ${questionsToInsert.length} questions` });
       setSelectedQuestions([]);
     } catch (error) {
       console.error(error);
@@ -243,20 +227,87 @@ const UploadQuestions = () => {
         toast({ title: 'No questions', description: 'Nothing to save.' });
         return;
       }
-      const questionsToInsert = questions.map(q => ({
-        user_id: user.id,
-        question_text: q.question_text,
-        type: q.type,
-        options: q.options || null,
-        correct_answer: q.correct_answer || null,
-        answer_text: q.correct_answer || '',
-        btl: q.btl,
-        marks: q.marks,
-        status: 'pending' as 'pending',
-        chapter: q.chapter || null,
-        course_outcomes: q.course_outcomes || null,
-        title: title || null,
-      }));
+      // upload images and prepare insert rows
+      const bucket = 'question-images';
+      const uploadImage = async (dataUrl: string, key: string) => {
+        try {
+          console.log('[uploadImage][confirmSave] Using bucket:', bucket, 'key:', key);
+          if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+            console.warn('[uploadImage][confirmSave] Not a valid image data URL:', dataUrl?.slice(0, 100));
+            return null;
+          }
+          const arr = dataUrl.split(',');
+          if (arr.length < 2) {
+            console.warn('[uploadImage][confirmSave] Malformed dataUrl:', dataUrl.slice(0, 80));
+            return null;
+          }
+          const mimeMatch = arr[0].match(/:(.*?);/);
+          const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+          const bstr = atob(arr[1]);
+          const findSignatureOffset = (): number => {
+            const sigPNG = '\\x89PNG\\r\\n\\x1A\\n';
+            const sigJPEG = '\\xFF\\xD8\\xFF';
+            const idxPNG = bstr.indexOf(sigPNG);
+            const idxJPEG = bstr.indexOf(sigJPEG);
+            let best = -1;
+            if (idxPNG >= 0) best = idxPNG;
+            if (idxJPEG >= 0 && (best === -1 || idxJPEG < best)) best = idxJPEG;
+            return best;
+          };
+          let cleanBstr = bstr;
+          if (/WebKitFormBoundary/.test(bstr)) {
+            const off = findSignatureOffset();
+            if (off > 0) {
+              console.warn('[uploadImage][confirmSave] Stripping multipart boundary, signature at', off);
+              cleanBstr = bstr.slice(off);
+            } else {
+              console.warn('[uploadImage][confirmSave] Boundary detected but no signature found; using original bytes');
+            }
+          }
+          const u8arr = new Uint8Array(cleanBstr.length);
+          for (let i = 0; i < cleanBstr.length; i++) {
+            u8arr[i] = cleanBstr.charCodeAt(i);
+          }
+          const file = new File([u8arr], key, { type: mime });
+          const path = `${key}`;
+          const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
+          if (upErr) {
+            console.error('Storage upload error', upErr);
+            return null;
+          }
+          const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path);
+          console.log('[uploadImage][confirmSave] publicData:', publicData);
+          return publicData?.publicUrl || null;
+        } catch (err) {
+          console.error('uploadImage failed', err);
+          return null;
+        }
+      };
+
+      const questionsToInsert: any[] = [];
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        let image_url = null;
+        if (q.image) {
+          const key = `${(title || 'uploads').replace(/[^a-z0-9-_]/gi, '_')}/${Date.now()}_${i}.png`;
+          image_url = await uploadImage(q.image, key);
+        }
+        questionsToInsert.push({
+          user_id: user.id,
+          question_text: q.question_text,
+          type: q.type,
+          options: q.options || null,
+          correct_answer: q.correct_answer || null,
+          answer_text: q.correct_answer || '',
+          btl: q.btl,
+          marks: q.marks,
+          status: 'pending' as 'pending',
+          chapter: q.chapter || null,
+          course_outcomes: q.course_outcomes || null,
+          title: title || null,
+          image_url,
+        });
+      }
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
       if (error) {
         console.error("Supabase insert error:", error);
@@ -577,6 +628,10 @@ const UploadQuestions = () => {
                         <TableHead></TableHead>
                         <TableHead>#</TableHead>
                         <TableHead>Question Text</TableHead>
+                        <TableHead>Image</TableHead>
+                        <TableHead>Anchor</TableHead>
+                        <TableHead>Mapped</TableHead>
+                        <TableHead>Img?</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>BTL</TableHead>
                         <TableHead>Marks</TableHead>
@@ -596,6 +651,22 @@ const UploadQuestions = () => {
                           </TableCell>
                           <TableCell>{idx + 1}</TableCell>
                           <TableCell className="max-w-md truncate">{q.question_text}</TableCell>
+                          <TableCell>
+                            {q.image ? (
+                              <img src={q.image} alt="Question" style={{ maxWidth: 80, maxHeight: 80, borderRadius: 4 }} />
+                            ) : (
+                              <span style={{ color: '#aaa' }}>No image</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {q.image_anchor_row ? `${q.image_anchor_row},${q.image_anchor_col || ''}` : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {q.image_mapped_row ? `${q.image_mapped_row}` : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {q.image_present ? <span style={{ color: 'green' }}>Yes</span> : <span style={{ color: '#aaa' }}>No</span>}
+                          </TableCell>
                           <TableCell className="capitalize">{q.type}</TableCell>
                           <TableCell>{q.btl}</TableCell>
                           <TableCell>{q.marks}</TableCell>

@@ -9,6 +9,8 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+logger = logging.getLogger("template_backend")
+logger.setLevel(logging.INFO)
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -291,6 +293,35 @@ async def generate_docx(
         return out
 
     _questions = _normalize(questions)
+    logger.info("generate_docx called: received %d question(s)", len(_questions))
+    # Normalize common image keys and log per-question image presence (without dumping full base64)
+    try:
+        image_count = 0
+        for i, q in enumerate(_questions):
+            if not isinstance(q, dict):
+                logger.debug("Question %s is not a dict (type=%s)", i, type(q))
+                continue
+            # Support alternate keys the frontend might send
+            for alt in ('image', 'img', 'imageUrl', 'img_url'):
+                if alt in q and 'image_url' not in q:
+                    q['image_url'] = q.get(alt)
+                    logger.debug("Normalized image key '%s' -> 'image_url' for question %s", alt, i)
+
+            img = q.get('image_url')
+            if img:
+                image_count += 1
+                try:
+                    kind = 'data' if isinstance(img, str) and img.startswith('data:') else ('http' if isinstance(img, str) and img.startswith('http') else type(img))
+                    preview = (img[:80] + '...') if isinstance(img, str) and len(img) > 80 else str(img)
+                    logger.info("Question %s: has image_url (kind=%s, preview=%s)", i, kind, preview)
+                except Exception:
+                    logger.exception("Error while logging image preview for question %s", i)
+            else:
+                logger.debug("Question %s: no image_url", i)
+
+        logger.info("Found %d questions with image_url", image_count)
+    except Exception:
+        logger.exception("Error while counting/normalizing image URLs")
 
     # Choose up to 10 random Part-A questions; fall back sensibly
     a_questions = [q for q in _questions if str(q.get('part', '')).upper() == 'A']
@@ -335,7 +366,10 @@ async def generate_docx(
     btl_shared = random.choice([3, 4, 5])
     idx = 1
     import re
+
     # Use the first 10 questions as received (frontend order)
+    import base64, requests
+    from io import BytesIO
     for i, q in enumerate(_questions[:10]):
         row_cells = table_a.add_row().cells
         for j, w in enumerate(widths_a):
@@ -348,7 +382,33 @@ async def generate_docx(
         text = _first_non_empty(q, ['text', 'question_text', 'question', 'q', 'title', 'body', 'content'])
         if text:
             text = re.sub(r'^\s*[DO]\.[\s-]*', '', text, flags=re.IGNORECASE)
-        row_cells[1].text = text if text else ""
+
+        # Add text to cell, then image if present
+        p = row_cells[1].paragraphs[0]
+        if text:
+            p.add_run(text)
+        img_url = q.get('image_url')
+        if img_url:
+            try:
+                if img_url.startswith('data:image/'):
+                    # data URL
+                    header, b64data = img_url.split(',', 1)
+                    img_bytes = base64.b64decode(b64data)
+                    ext = '.png' if 'png' in header else '.jpg'
+                    img_stream = BytesIO(img_bytes)
+                    p.add_run().add_picture(img_stream, width=Inches(2.5))
+                    logger.info("Inserted data:image for question index %s (ext=%s)", idx, ext)
+                elif img_url.startswith('http'):
+                    resp = requests.get(img_url)
+                    if resp.ok:
+                        content_type = resp.headers.get('content-type','')
+                        ext = '.png' if 'png' in content_type else '.jpg'
+                        img_stream = BytesIO(resp.content)
+                        p.add_run().add_picture(img_stream, width=Inches(2.5))
+                        logger.info("Fetched and inserted remote image for question index %s (content-type=%s)", idx, content_type)
+            except Exception as e:
+                logger.exception("Failed to insert image for question index %s, img_url=%s", idx, img_url)
+                p.add_run(" [Image error]")
 
         # CO: use from question if present, else fallback to mapping
         co_val = q.get('co') or q.get('CO') or q.get('course_outcome')
@@ -427,7 +487,30 @@ async def generate_docx(
         p_a = row_a[1].paragraphs[0]
         p_a.paragraph_format.left_indent = Inches(0.7)
         if qa:
+            # Add question text
             p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
+            # Add image if present
+            img_url = qa.get('image_url')
+            if img_url:
+                try:
+                    if img_url.startswith('data:image/'):
+                        header, b64data = img_url.split(',', 1)
+                        img_bytes = base64.b64decode(b64data)
+                        ext = '.png' if 'png' in header else '.jpg'
+                        img_stream = BytesIO(img_bytes)
+                        p_a.add_run().add_picture(img_stream, width=Inches(2.5))
+                        logger.info("Inserted data:image for PART-A question %s (ext=%s)", idx, ext)
+                    elif img_url.startswith('http'):
+                        resp = requests.get(img_url)
+                        if resp.ok:
+                            content_type = resp.headers.get('content-type','')
+                            ext = '.png' if 'png' in content_type else '.jpg'
+                            img_stream = BytesIO(resp.content)
+                            p_a.add_run().add_picture(img_stream, width=Inches(2.5))
+                            logger.info("Fetched and inserted PART-A remote image for %s (content-type=%s)", idx, content_type)
+                except Exception as e:
+                    logger.exception("Failed to insert PART-A image for %s, img_url=%s", idx, img_url)
+                    p_a.add_run(" [Image error]")
             row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
             row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
@@ -453,7 +536,30 @@ async def generate_docx(
         p_b = row_b[1].paragraphs[0]
         p_b.paragraph_format.left_indent = Inches(0.7)
         if qb:
+            # Add question text
             p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
+            # Add image if present
+            img_url = qb.get('image_url')
+            if img_url:
+                try:
+                    if img_url.startswith('data:image/'):
+                        header, b64data = img_url.split(',', 1)
+                        img_bytes = base64.b64decode(b64data)
+                        ext = '.png' if 'png' in header else '.jpg'
+                        img_stream = BytesIO(img_bytes)
+                        p_b.add_run().add_picture(img_stream, width=Inches(2.5))
+                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", idx, ext)
+                    elif img_url.startswith('http'):
+                        resp = requests.get(img_url)
+                        if resp.ok:
+                            content_type = resp.headers.get('content-type','')
+                            ext = '.png' if 'png' in content_type else '.jpg'
+                            img_stream = BytesIO(resp.content)
+                            p_b.add_run().add_picture(img_stream, width=Inches(2.5))
+                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", idx, content_type)
+                except Exception as e:
+                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", idx, img_url)
+                    p_b.add_run(" [Image error]")
             row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
             row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
