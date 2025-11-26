@@ -10,7 +10,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Upload, Plus, Trash2 } from "lucide-react";
-import { AnimatedRingLoader } from "@/components/ui/AnimatedRingLoader";
 import { Textarea } from "@/components/ui/textarea";
 import { saveAs } from "file-saver";
 import { supabase } from "@/integrations/supabase/client";
@@ -43,10 +42,6 @@ const UploadQuestions = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadDone, setUploadDone] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveDone, setSaveDone] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [manualQuestion, setManualQuestion] = useState<Question>({
@@ -71,9 +66,6 @@ const UploadQuestions = () => {
     fileNameRef.current = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
     setTitle(fileNameRef.current);
 
-    setIsUploading(true);
-    setUploadDone(false);
-
     // Upload file to backend for parsing (to get images too)
     const formData = new FormData();
     formData.append("file", file);
@@ -84,22 +76,17 @@ const UploadQuestions = () => {
       });
       if (!res.ok) {
         toast({ title: "Error", description: `Backend error: ${res.statusText}` });
-        setIsUploading(false);
         return;
       }
       const result = await res.json();
       if (result.questions && Array.isArray(result.questions)) {
         setQuestions(result.questions);
         toast({ title: "File uploaded", description: `${result.questions.length} questions parsed from Excel` });
-        setUploadDone(true);
       } else {
         toast({ title: "Error", description: "No questions found in file." });
       }
     } catch (err: any) {
       toast({ title: "Error", description: "Failed to upload or parse file", variant: "destructive" });
-    } finally {
-      setIsUploading(false);
-      setTimeout(() => setUploadDone(false), 2000); // Reset after showing check
     }
   };
 
@@ -117,8 +104,6 @@ const UploadQuestions = () => {
   };
 
   const saveSelectedQuestions = async (status: 'verified' | 'pending') => {
-    setIsSaving(true);
-    setSaveDone(false);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -225,13 +210,9 @@ const UploadQuestions = () => {
       }
       toast({ title: "Success", description: `Saved ${questionsToInsert.length} questions` });
       setSelectedQuestions([]);
-      setSaveDone(true);
-      setTimeout(() => setSaveDone(false), 2000);
     } catch (error) {
       console.error(error);
       toast({ title: "Error", description: "Failed to save questions", variant: "destructive" });
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -427,18 +408,13 @@ const UploadQuestions = () => {
       </nav>
 
       <main className="container mx-auto px-4 py-8">
-        {(isSaving || saveDone) && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-            <AnimatedRingLoader done={saveDone} />
-          </div>
-        )}
         <div className="grid gap-6 mb-8">
           <Card>
             <CardHeader>
               <CardTitle>Upload Options</CardTitle>
               <CardDescription>Upload a CSV file or add questions manually</CardDescription>
             </CardHeader>
-            <CardContent className="flex gap-4 items-center min-h-[120px]">
+            <CardContent className="flex gap-4">
               <div>
                 <Label htmlFor="file-upload" className="cursor-pointer">
                   <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">
@@ -458,9 +434,6 @@ const UploadQuestions = () => {
                 <Plus className="w-4 h-4 mr-2" />
                 Add Question Manually
               </Button>
-              <div className="flex-1 flex justify-center">
-                {(isUploading || uploadDone) && <AnimatedRingLoader done={uploadDone} />}
-              </div>
             </CardContent>
           </Card>
 

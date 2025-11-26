@@ -97,8 +97,8 @@ function App() {
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/authentication" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <Shield className="w-5 h-5" />Authentication
+                          <NavLink to="/review-template" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <Shield className="w-5 h-5" />Review Template
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

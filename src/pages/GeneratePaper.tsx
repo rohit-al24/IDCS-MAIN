@@ -106,6 +106,43 @@ const GeneratePaper = () => {
   const [questionBanks, setQuestionBanks] = useState<string[]>([]);
   const [selectedQuestionBank, setSelectedQuestionBank] = useState<string>("");
   const [questionBankSearch, setQuestionBankSearch] = useState<string>("");
+  // Document meta for DOCX generation (user provided)
+  const [docMeta, setDocMeta] = useState({
+    dept: "CSE",
+    cc: "CS3401",
+    cn: "",
+    qpcode: "QP123",
+    exam_title: "",
+    regulation: "Regulation 2024",
+    semester: "Second Semester",
+  });
+  const departmentOptions = [
+    "CSE",
+    "IT",
+    "ECE",
+    "EEE",
+    "CIVIL",
+    "MECH",
+    "AI&DS",
+    "AI&ML",
+  ];
+  const semesterOptions = [
+    "First Semester",
+    "Second Semester",
+    "Third Semester",
+    "Fourth Semester",
+    "Fifth Semester",
+    "Sixth Semester",
+    "Seventh Semester",
+    "Eighth Semester",
+  ];
+  // Duplicate check state
+  const [dups1, setDups1] = useState<Set<string>>(new Set());
+  const [dups2, setDups2] = useState<Set<string>>(new Set());
+  const [lastVerifiedQuestions, setLastVerifiedQuestions] = useState<Question[]>([]);
+  const [lastTemplate, setLastTemplate] = useState<Template | null>(null);
+  const [checking, setChecking] = useState<boolean>(false);
+  const [showVerifiedPopup, setShowVerifiedPopup] = useState<boolean>(false);
 
   // --- Image hooks must be at the top level ---
   const imageSrcs1 = useQuestionImages(generatedQuestions1);
@@ -398,6 +435,11 @@ const GeneratePaper = () => {
       }
       setGeneratedQuestions1(gen1 as any);
       setGeneratedQuestions2(gen2 as any);
+      setLastVerifiedQuestions(verifiedQuestions as any);
+      setLastTemplate(template);
+      // reset duplicates state on fresh generation
+      setDups1(new Set());
+      setDups2(new Set());
       setAnswerKey1(key1.map(k => ({ questionNumber: Number(k.questionNumber), answer: String(k.answer) })));
       setAnswerKey2(key2.map(k => ({ questionNumber: Number(k.questionNumber), answer: String(k.answer) })));
       setIsGenerated(true);
@@ -416,6 +458,105 @@ const GeneratePaper = () => {
     }
   };
 
+  // Normalize question text for duplicate comparison
+  const norm = (s: string | undefined) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+  // Check duplicates across Copy 1 and Copy 2
+  const checkDuplicates = () => {
+    if (!isGenerated) return;
+    setChecking(true);
+    try {
+      const map1 = new Map<string, string>(); // normText -> id
+      const map2 = new Map<string, string>();
+      generatedQuestions1.forEach((q: any) => {
+        const key = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        map1.set(key, q.id || `${q.baseNumber}.${q.sub||''}`);
+      });
+      generatedQuestions2.forEach((q: any) => {
+        const key = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        map2.set(key, q.id || `${q.baseNumber}.${q.sub||''}`);
+      });
+      const dupKeys = new Set<string>();
+      for (const k of map1.keys()) { if (map2.has(k) && k.split('|')[0] !== '') dupKeys.add(k); }
+      const newD1 = new Set<string>();
+      const newD2 = new Set<string>();
+      generatedQuestions1.forEach((q: any) => {
+        const k = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        if (dupKeys.has(k)) newD1.add(q.id || `${q.baseNumber}.${q.sub||''}`);
+      });
+      generatedQuestions2.forEach((q: any) => {
+        const k = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        if (dupKeys.has(k)) newD2.add(q.id || `${q.baseNumber}.${q.sub||''}`);
+      });
+      setDups1(newD1);
+      setDups2(newD2);
+      if (dupKeys.size === 0) {
+        setShowVerifiedPopup(true);
+        // auto-hide popup after short delay
+        setTimeout(() => setShowVerifiedPopup(false), 1800);
+        toast({ title: "Verified", description: "No duplicates across copies", variant: "default" });
+      } else {
+        toast({ title: "Duplicates Found", description: `${dupKeys.size} duplicates detected between copies`, variant: "destructive" });
+      }
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // Replace a duplicate question with a random one honoring constraints
+  const replaceDuplicate = (copy: 1 | 2, q: any) => {
+    if (!lastTemplate || !lastVerifiedQuestions.length) {
+      toast({ title: "Unavailable", description: "Cannot replace: context missing", variant: "destructive" });
+      return;
+    }
+    const tpl = lastTemplate as any;
+    const isPartA = (q.part || 'A') === 'A' || (q.baseNumber || 0) <= 10;
+    const marksReq = isPartA ? ((tpl.sections||[]).find((s:any)=> (s.name||'').toLowerCase().includes('section a'))?.marksPerQuestion || q.marks) : q.marks;
+    const coReq = ((q.co || q.course_outcomes || '') as string).toString().trim().toLowerCase();
+    const btlReq = String(q.btl||'').replace(/BTL/i,'').trim();
+    const typeReq = q.type;
+
+    // pool honoring constraints and avoiding duplicate text across copies
+    const otherCopy = copy === 1 ? generatedQuestions2 : generatedQuestions1;
+    const otherNorms = new Set(otherCopy.map((x:any)=> norm(x.question_text)));
+    const pool = lastVerifiedQuestions.filter((cand:any)=>{
+      const co = ((cand.course_outcomes||'') as string).toString().trim().toLowerCase();
+      const btl = String((cand as any).btl);
+      const okCo = co === coReq;
+      const okBtl = !btlReq || btl === btlReq;
+      const okMarks = Number(cand.marks) === Number(marksReq);
+      const okType = !typeReq || cand.type === typeReq;
+      const notDupText = !otherNorms.has(norm(cand.question_text));
+      return okCo && okBtl && okMarks && okType && notDupText;
+    });
+    if (pool.length === 0) {
+      toast({ title: "No Replacement", description: "No suitable question found respecting BTL/CO/marks/type", variant: "destructive" });
+      return;
+    }
+    const replacement = pool[Math.floor(Math.random()*pool.length)];
+    const apply = (list:any[]) => list.map((x:any)=>{
+      if ((x.id||`${x.baseNumber}.${x.sub||''}`) === (q.id||`${q.baseNumber}.${q.sub||''}`)) {
+        const newQ = { ...replacement } as any;
+        newQ.part = q.part;
+        newQ.baseNumber = q.baseNumber;
+        newQ.sub = q.sub;
+        newQ.marks = q.marks;
+        newQ.or = q.or;
+        newQ.co = (newQ as any).course_outcomes;
+        return newQ;
+      }
+      return x;
+    });
+    if (copy === 1) {
+      setGeneratedQuestions1(apply(generatedQuestions1));
+      // re-check duplicates for this item
+      setDups1(prev=>{ const n=new Set(prev); n.delete(q.id||`${q.baseNumber}.${q.sub||''}`); return n; });
+    } else {
+      setGeneratedQuestions2(apply(generatedQuestions2));
+      setDups2(prev=>{ const n=new Set(prev); n.delete(q.id||`${q.baseNumber}.${q.sub||''}`); return n; });
+    }
+  };
+
   const BANNER_IMAGE_URL = "/banner.jpg"; // Use banner.jpg from public folder
   // Backend URL with intelligent fallbacks (env -> 4000 -> 8000)
   const envBackend = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined;
@@ -426,7 +567,7 @@ const GeneratePaper = () => {
     if (!/^https?:\/\//i.test(raw)) return `http://${raw}`; // prefix scheme if missing
     return raw.replace(/\/$/, '');
   };
-  const primaryBase = sanitizeBase(envBackend) || 'https://idcs-main-p9el.onrender.com';
+  const primaryBase = sanitizeBase(envBackend) || 'http://127.0.0.1:4000';
   const candidateBases = [primaryBase, 'http://localhost:8000'];
   const [activeBackend, setActiveBackend] = useState<string>(primaryBase);
 
@@ -439,15 +580,15 @@ const GeneratePaper = () => {
     const instructions = template?.instructions || "Answer all questions";
 
     if (downloadFormat === "word") {
-      // Use sensible defaults for metadata
+      // Merge user-entered metadata with sensible defaults
       const meta = {
-        dept: "CSE", // or prompt user for department
-        cc: "CS3401", // or prompt user for course code
-        cn: banner, // or prompt user for course name
-        qpcode: "QP123", // or prompt user for code
-        exam_title: banner,
-        regulation: "Regulation 2024",
-        semester: "Second Semester",
+        dept: docMeta.dept || "CSE",
+        cc: docMeta.cc || "CS3401",
+        cn: docMeta.cn || banner,
+        qpcode: docMeta.qpcode || "QP123",
+        exam_title: docMeta.exam_title || banner,
+        regulation: docMeta.regulation || "Regulation 2024",
+        semester: docMeta.semester || "Second Semester",
       };
       // Map questions to backend format
       // Helper to convert image URL to data URL (base64)
@@ -617,6 +758,71 @@ const GeneratePaper = () => {
               </Button>
             </CardContent>
           </Card>
+          {isGenerated && (
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle>Document Details</CardTitle>
+                  <CardDescription>These values will be used in the generated Word document</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Department</Label>
+                      <Select value={docMeta.dept} onValueChange={(val)=>setDocMeta(v=>({...v, dept: val}))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {departmentOptions.map(opt => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Course Code</Label>
+                      <Input value={docMeta.cc} onChange={e=>setDocMeta(v=>({...v, cc: e.target.value}))} placeholder="e.g., CS3401" />
+                    </div>
+                    <div>
+                      <Label>Course Name</Label>
+                      <Input value={docMeta.cn || templates.find(t=>t.id===selectedTemplateId)?.name || ''} onChange={e=>setDocMeta(v=>({...v, cn: e.target.value}))} placeholder="e.g., Computer Architecture" />
+                    </div>
+                    <div>
+                      <Label>QP Code</Label>
+                      <Input value={docMeta.qpcode} onChange={e=>setDocMeta(v=>({...v, qpcode: e.target.value}))} placeholder="e.g., QP123" />
+                    </div>
+                    <div>
+                      <Label>Exam Title</Label>
+                      <Input value={docMeta.exam_title || templates.find(t=>t.id===selectedTemplateId)?.name || ''} onChange={e=>setDocMeta(v=>({...v, exam_title: e.target.value}))} placeholder="e.g., Mid Term Examination" />
+                    </div>
+                    <div>
+                      <Label>Regulation</Label>
+                      <Input value={docMeta.regulation} onChange={e=>setDocMeta(v=>({...v, regulation: e.target.value}))} placeholder="e.g., Regulation 2024" />
+                    </div>
+                    <div>
+                      <Label>Semester</Label>
+                      <Select value={docMeta.semester} onValueChange={val => setDocMeta(v => ({ ...v, semester: val }))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select semester" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {semesterOptions.map(opt => (
+                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {isGenerated && (
+            <div className="flex justify-center">
+              <Button variant="secondary" onClick={checkDuplicates} disabled={checking}>
+                {checking ? 'Checking…' : 'Check Duplicate'}
+              </Button>
+            </div>
+          )}
             
 
           {isGenerated && (
@@ -636,7 +842,7 @@ const GeneratePaper = () => {
                       </div>
                       <div className="space-y-3 max-h-96 overflow-y-auto">
                         {generatedQuestions1.map((q:any, idx:number) => (
-                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''}`}>
+                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups1.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
@@ -654,6 +860,11 @@ const GeneratePaper = () => {
                               </div>
                             )}
                             {q.or && <p className="text-center text-xs font-semibold mt-2">(OR)</p>}
+                            {dups1.has(q.id||`${q.baseNumber}.${q.sub||''}`) && (
+                              <div className="mt-3 flex justify-end">
+                                <Button size="sm" variant="outline" onClick={()=>replaceDuplicate(1, q)}>Replace with random</Button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -667,7 +878,6 @@ const GeneratePaper = () => {
                           </SelectContent>
                         </Select>
                         <Button variant="outline" onClick={()=>downloadPaper(generatedQuestions1, 'Copy 1')}><Download className="w-4 h-4 mr-2" />Download</Button>
-                        <Button variant="outline" onClick={()=>downloadAnswerKey(answerKey1, 'Copy 1')}><Key className="w-4 h-4 mr-2" />Answer Key</Button>
                       </div>
                     </div>
                   </CardContent>
@@ -688,7 +898,7 @@ const GeneratePaper = () => {
                       </div>
                       <div className="space-y-3 max-h-96 overflow-y-auto">
                         {generatedQuestions2.map((q:any, idx:number) => (
-                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''}`}>
+                          <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups2.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
@@ -706,6 +916,11 @@ const GeneratePaper = () => {
                               </div>
                             )}
                             {q.or && <p className="text-center text-xs font-semibold mt-2">(OR)</p>}
+                            {dups2.has(q.id||`${q.baseNumber}.${q.sub||''}`) && (
+                              <div className="mt-3 flex justify-end">
+                                <Button size="sm" variant="outline" onClick={()=>replaceDuplicate(2, q)}>Replace with random</Button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -719,7 +934,6 @@ const GeneratePaper = () => {
                           </SelectContent>
                         </Select>
                         <Button variant="outline" onClick={()=>downloadPaper(generatedQuestions2, 'Copy 2')}><Download className="w-4 h-4 mr-2" />Download</Button>
-                        <Button variant="outline" onClick={()=>downloadAnswerKey(answerKey2, 'Copy 2')}><Key className="w-4 h-4 mr-2" />Answer Key</Button>
                       </div>
                     </div>
                   </CardContent>
@@ -730,6 +944,14 @@ const GeneratePaper = () => {
 
         </div>
       </main>
+      {showVerifiedPopup && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-green-600/90 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2 animate-[fadeIn_.2s_ease-out]">
+            <span className="inline-block w-5 h-5 rounded-full bg-white text-green-600 flex items-center justify-center">✓</span>
+            <span>No duplicates detected</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

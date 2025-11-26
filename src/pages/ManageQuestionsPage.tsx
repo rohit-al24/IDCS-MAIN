@@ -21,34 +21,11 @@ function EditableQuestionRow({ question, onSave }) {
     marks: question.marks || "",
   });
   const [saving, setSaving] = React.useState(false);
-  const [imageFile, setImageFile] = React.useState(null);
-  const [imageUploading, setImageUploading] = React.useState(false);
   const changed =
     edit.question_text !== (question.question_text || "") ||
     edit.course_outcomes !== (question.course_outcomes || "") ||
     edit.btl !== (question.btl || "") ||
     edit.marks !== (question.marks || "");
-
-  // Handle image upload and update
-  const handleImageReplace = async (file) => {
-    setImageUploading(true);
-    try {
-      // Upload to Supabase Storage (example bucket: 'question-images')
-      const fileExt = file.name.split('.').pop();
-      const filePath = `question-images/${question.id}_${Date.now()}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('question-images').upload(filePath, file, { upsert: true });
-      if (error) throw error;
-      // Get public URL
-      const { data: publicUrlData } = supabase.storage.from('question-images').getPublicUrl(filePath);
-      if (!publicUrlData?.publicUrl) throw new Error('No public URL');
-      // Update DB
-      await onSave({ ...edit, image_url: publicUrlData.publicUrl });
-    } catch (e) {
-      alert('Image upload failed');
-    }
-    setImageUploading(false);
-  };
-
   return (
     <div className="border rounded-lg p-4 bg-muted/50">
       <div className="mb-2">
@@ -83,52 +60,6 @@ function EditableQuestionRow({ question, onSave }) {
           />
         </div>
       </div>
-      {question.image_url ? (
-        <div className="mb-2">
-          <div className="mb-1">Current Image:</div>
-          <img src={question.image_url} alt="Current" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
-          <div className="mt-2">
-            <label className="block text-xs font-medium mb-1">Replace Image</label>
-            <input
-              type="file"
-              accept="image/*"
-              disabled={imageUploading}
-              onChange={e => {
-                if (e.target.files && e.target.files[0]) {
-                  setImageFile(e.target.files[0]);
-                  handleImageReplace(e.target.files[0]);
-                }
-              }}
-            />
-            {imageUploading && <div className="text-xs text-muted-foreground mt-1">Uploading...</div>}
-          </div>
-        </div>
-      ) : (
-        <div className="mb-2">
-          <Button
-            variant="outline"
-            size="sm"
-            asChild
-            disabled={imageUploading}
-          >
-            <label>
-              Add Image
-              <input
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={e => {
-                  if (e.target.files && e.target.files[0]) {
-                    setImageFile(e.target.files[0]);
-                    handleImageReplace(e.target.files[0]);
-                  }
-                }}
-              />
-            </label>
-          </Button>
-          {imageUploading && <div className="text-xs text-muted-foreground mt-1">Uploading...</div>}
-        </div>
-      )}
       <Button
         variant="default"
         size="sm"
@@ -169,7 +100,6 @@ function useQuestionImages(questions: any[]): ImageSrcs {
       try {
         if (!url) return;
         if (url.startsWith('data:')) { urls[qId] = url; return; }
-        if (/^https?:\/\//i.test(url)) { urls[qId] = url; return; }
         const res = await fetch(url);
         if (!res.ok) return;
         const contentType = res.headers.get('content-type') || '';
@@ -228,10 +158,6 @@ const ManageQuestionsPage: React.FC = () => {
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const imageSrcs = useQuestionImages(questions);
 
-  // Edit Name Modal
-  const [editNameOpen, setEditNameOpen] = useState(false);
-  const [newBankName, setNewBankName] = useState("");
-  const [editNameLoading, setEditNameLoading] = useState(false);
   // Edit single question modal
   const [editingQ, setEditingQ] = useState(null);
   // Edit Qns Modal
@@ -348,45 +274,10 @@ const ManageQuestionsPage: React.FC = () => {
               <div className="text-2xl font-bold text-primary">{selectedBank.title}</div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => { setNewBankName(selectedBank.title); setEditNameOpen(true); }}>Edit Name</Button>
+              <Button variant="outline" onClick={() => setEditQnsOpen(true)}>Edit Questions</Button>
               <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>Delete Bank</Button>
               <Button variant="ghost" onClick={() => setSelectedBank(null)}>Back</Button>
             </div>
-                    {/* Edit Name Dialog */}
-                    <Dialog open={editNameOpen} onOpenChange={setEditNameOpen}>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Edit Bank Name</DialogTitle>
-                        </DialogHeader>
-                        <Input value={newBankName} onChange={e => setNewBankName(e.target.value)} className="mb-4" />
-                        <DialogFooter>
-                          <Button variant="secondary" onClick={() => setEditNameOpen(false)}>Cancel</Button>
-                          <Button
-                            variant="default"
-                            disabled={editNameLoading || !newBankName.trim() || newBankName === selectedBank.title}
-                            onClick={async () => {
-                              setEditNameLoading(true);
-                              try {
-                                const { data: { user } } = await supabase.auth.getUser();
-                                if (!user) throw new Error("Not logged in");
-                                // Update all questions with this title
-                                await supabase
-                                  .from("question_bank")
-                                  .update({ title: newBankName.trim() })
-                                  .eq("user_id", user.id)
-                                  .eq("title", selectedBank.title);
-                                setSelectedBank({ ...selectedBank, title: newBankName.trim() });
-                                setEditNameOpen(false);
-                                // Refresh banks and questions
-                                setBanks(banks.map(b => b.title === selectedBank.title ? { ...b, title: newBankName.trim() } : b));
-                                setQuestions(questions.map(q => ({ ...q, title: newBankName.trim() })));
-                              } catch (e) {}
-                              setEditNameLoading(false);
-                            }}
-                          >{editNameLoading ? "Saving..." : "Save"}</Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
           </div>
 
 
