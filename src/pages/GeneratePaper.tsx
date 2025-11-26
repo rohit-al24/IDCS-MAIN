@@ -426,7 +426,7 @@ const GeneratePaper = () => {
     if (!/^https?:\/\//i.test(raw)) return `http://${raw}`; // prefix scheme if missing
     return raw.replace(/\/$/, '');
   };
-  const primaryBase = sanitizeBase(envBackend) || 'http://127.0.0.1:4000';
+  const primaryBase = sanitizeBase(envBackend) || 'https://idcs-main-p9el.onrender.com';
   const candidateBases = [primaryBase, 'http://localhost:8000'];
   const [activeBackend, setActiveBackend] = useState<string>(primaryBase);
 

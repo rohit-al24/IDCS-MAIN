@@ -38,58 +38,75 @@ function App() {
             <div className="flex min-h-screen w-full">
               <Sidebar side="left" collapsible="offcanvas">
                 <SidebarHeader>
-                  <div className="bg-primary flex items-center gap-3 px-2 py-2 rounded-b-xl shadow-md">
-                    
-                    <span className="text-3xl font-extrabold text-primary-foreground tracking-wide">IDCS KR</span>
+                  <div className="bg-primary flex items-center gap-4 px-6 py-6 rounded-b-2xl shadow-lg drop-shadow-lg">
+                    <span className="text-4xl font-extrabold text-primary-foreground tracking-wide drop-shadow">IDCS KR</span>
                   </div>
                 </SidebarHeader>
                 <SidebarContent>
                   <SidebarGroup>
-                    <SidebarGroupLabel>Main</SidebarGroupLabel>
-                    <SidebarMenu>
+                    <SidebarGroupLabel className="text-lg font-semibold mb-4 mt-4 text-gray-500">Main</SidebarGroupLabel>
+                    <SidebarMenu className="gap-1 px-2 pb-4">
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Home className="w-4 h-4" />Home</NavLink>
+                          <NavLink to="/" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <Home className="w-5 h-5" />Home
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/login" activeClassName="font-bold text-primary" className="flex items-center gap-2"><LogIn className="w-4 h-4" />Login</NavLink>
+                          <NavLink to="/login" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <LogIn className="w-5 h-5" />Login
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/dashboard" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileText className="w-4 h-4" />Dashboard</NavLink>
+                          <NavLink to="/dashboard" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <FileText className="w-5 h-5" />Dashboard
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/upload" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileUp className="w-4 h-4" />Upload</NavLink>
+                          <NavLink to="/upload" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <FileUp className="w-5 h-5" />Upload
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/verify" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Shield className="w-4 h-4" />Verify</NavLink>
+                          <NavLink to="/verify" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <Shield className="w-5 h-5" />Verify
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/templates" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileText className="w-4 h-4" />Templates</NavLink>
+                          <NavLink to="/templates" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <FileText className="w-5 h-5" />Templates
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/manage-questions" activeClassName="font-bold text-primary" className="flex items-center gap-2"><FileUp className="w-4 h-4" />Manage Questions</NavLink>
+                          <NavLink to="/manage-questions" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <FileUp className="w-5 h-5" />Manage Questions
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/review-template" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Shield className="w-4 h-4" />Review Template</NavLink>
+                          <NavLink to="/authentication" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <Shield className="w-5 h-5" />Authentication
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/generate" activeClassName="font-bold text-primary" className="flex items-center gap-2"><Wand2 className="w-4 h-4" />Generate</NavLink>
+                          <NavLink to="/generate" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <Wand2 className="w-5 h-5" />Generate
+                          </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     </SidebarMenu>
