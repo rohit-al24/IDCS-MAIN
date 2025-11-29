@@ -153,8 +153,39 @@ async def generate_docx(
     regulation: str = Form("Regulation 2023"),
     semester: str = Form("Second Semester"),
     excel_meta: str = Form(None),
+    ocr_images: Optional[str] = Form(None),
+    title_image_url: Optional[str] = Form(None),
 ):
     from docx import Document
+    from docx.shared import Pt, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    import tempfile
+    import os
+    from io import BytesIO
+    import base64, requests
+
+    # Place a full-width image banner at the top if provided
+    logo_url = title_image_url if title_image_url else None
+    if logo_url and isinstance(logo_url, str) and logo_url.strip():
+        try:
+            banner_tbl = doc.add_table(rows=1, cols=1)
+            banner_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+            banner_tbl.autofit = True
+            banner_cell = banner_tbl.rows[0].cells[0]
+            if logo_url.startswith('data:image/'):
+                header, b64data = logo_url.split(',', 1)
+                img_bytes = base64.b64decode(b64data)
+                stream = BytesIO(img_bytes)
+                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+            elif logo_url.startswith('http://') or logo_url.startswith('https://'):
+                resp = requests.get(logo_url, timeout=5)
+                if resp.ok:
+                    stream = BytesIO(resp.content)
+                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+            banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception:
+            logger.exception("Failed to insert banner image; continuing without it")
     from docx.shared import Pt, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -185,7 +216,30 @@ async def generate_docx(
             pass
         return str(sem)
     sem_word = semester_to_words(sem_from_excel)
+
     doc = Document()
+
+    # Place a full-width image banner at the top if provided
+    logo_url = title_image_url if title_image_url else None
+    if logo_url and isinstance(logo_url, str) and logo_url.strip():
+        try:
+            banner_tbl = doc.add_table(rows=1, cols=1)
+            banner_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+            banner_tbl.autofit = True
+            banner_cell = banner_tbl.rows[0].cells[0]
+            if logo_url.startswith('data:image/'):
+                header, b64data = logo_url.split(',', 1)
+                img_bytes = base64.b64decode(b64data)
+                stream = BytesIO(img_bytes)
+                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+            elif logo_url.startswith('http://') or logo_url.startswith('https://'):
+                resp = requests.get(logo_url, timeout=5)
+                if resp.ok:
+                    stream = BytesIO(resp.content)
+                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+            banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception:
+            logger.exception("Failed to insert banner image; continuing without it")
 
     # Helpers
     def add_bold_line(text: str, align_center: bool = True, size: int = 12):
@@ -206,26 +260,42 @@ async def generate_docx(
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         return p
 
-    # Spacer and a thin header row used as rule
-    doc.add_paragraph(" ")
-    rule = doc.add_table(rows=1, cols=16)
-    rule.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for cell in rule.rows[0].cells:
-        cell.text = " "
 
 
-    # Header block (match screenshot)
-    # Reg. No. with more left margin
-    p_reg = doc.add_paragraph()
-    run_reg = p_reg.add_run("Reg. No. :")
-    run_reg.bold = True
-    run_reg.font.size = Pt(12)
-    p_reg.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p_reg.paragraph_format.left_indent = Inches(0.5)
-
-    add_bold_line("K. RAMAKRISHNAN COLLEGE OF ENGINEERING", True, 14)
-    add_bold_line("(AUTONOMOUS)", True, 12)
-    add_bold_line("Model Examination", True, 12)
+    # Title and banner side by side at the top
+    title_text = (exam_title).strip()
+    logo_url = title_image_url if title_image_url else None
+    tbl = doc.add_table(rows=1, cols=2)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tbl.autofit = True
+    # Title cell (left, centered)
+    c_title = tbl.rows[0].cells[0]
+    p_title = c_title.paragraphs[0]
+    run_title = p_title.add_run(title_text)
+    run_title.bold = True
+    run_title.font.size = Pt(20)
+    run_title.font.name = "Times New Roman"
+    run_title.underline = True
+    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Banner cell (right, right-aligned)
+    c_banner = tbl.rows[0].cells[1]
+    if logo_url and isinstance(logo_url, str) and logo_url.strip():
+        try:
+            if logo_url.startswith('data:image/'):
+                header, b64data = logo_url.split(',', 1)
+                img_bytes = base64.b64decode(b64data)
+                stream = BytesIO(img_bytes)
+                c_banner.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
+            elif logo_url.startswith('http://') or logo_url.startswith('https://'):
+                resp = requests.get(logo_url, timeout=5)
+                if resp.ok:
+                    stream = BytesIO(resp.content)
+                    c_banner.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
+            c_banner.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        except Exception:
+            logger.exception("Failed to insert banner image; continuing without it")
+    else:
+        c_banner.text = ""
     add_line(sem_word, True, 11, italic=True)
     add_line(dept_from_excel, True, 11, italic=True)
     add_bold_line(cc_from_excel, True, 12)
@@ -236,7 +306,7 @@ async def generate_docx(
     r_tm = p_tm.add_run("Time: Three Hours")
     r_tm.font.size = Pt(11)
     # Add enough spaces to separate
-    r_tm2 = p_tm.add_run("    ")
+    r_tm2 = p_tm.add_run("")
     r_tm2.font.size = Pt(11)
     # Use tab for better alignment
     p_tm.add_run("\t").font.size = Pt(11)
@@ -244,7 +314,7 @@ async def generate_docx(
     r_tm3.font.size = Pt(11)
     p_tm.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    doc.add_paragraph(" ")
+   
     # PART-A
     add_bold_line("PART- A         (10 x 2 = 20 Marks)", True, 12)
     table_a = doc.add_table(rows=1, cols=5)
@@ -257,13 +327,14 @@ async def generate_docx(
     hdr_cells[3].text = "BTL"
     hdr_cells[4].text = "Marks"
     # Column widths
-    widths_a = [Inches(0.7), Inches(4.2), Inches(0.8), Inches(0.8), Inches(0.8)]
-    for i, w in enumerate(widths_a):
+    widths_a = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+    widths_b = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+    for i, w in enumerate(widths_b):
         for row in table_a.rows:
             row.cells[i].width = w
     for c in hdr_cells:
         for p in c.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             for r in p.runs:
                 r.bold = True
 
@@ -293,6 +364,16 @@ async def generate_docx(
         return out
 
     _questions = _normalize(questions)
+    # Parse optional OCR images map: { index_or_id: dataUrl }
+    import json as _json
+    ocr_map = {}
+    try:
+        if ocr_images:
+            ocr_map = _json.loads(ocr_images)
+            if not isinstance(ocr_map, dict):
+                ocr_map = {}
+    except Exception:
+        logger.exception("Failed to parse ocr_images payload")
     logger.info("generate_docx called: received %d question(s)", len(_questions))
     # Normalize common image keys and log per-question image presence (without dumping full base64)
     try:
@@ -370,6 +451,24 @@ async def generate_docx(
     # Use the first 10 questions as received (frontend order)
     import base64, requests
     from io import BytesIO
+    # OCR helper
+    def _ocr_data_url(data_url: str) -> Optional[str]:
+        try:
+            import pytesseract
+            from PIL import Image
+            header, b64data = data_url.split(',', 1)
+            img_bytes = base64.b64decode(b64data)
+            with BytesIO(img_bytes) as bio:
+                img = Image.open(bio)
+                # Convert to RGB to avoid issues
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                text = pytesseract.image_to_string(img)
+                cleaned = text.strip()
+                return cleaned if cleaned else None
+        except Exception:
+            logger.exception("OCR failed for provided data URL")
+            return None
     for i, q in enumerate(_questions[:10]):
         row_cells = table_a.add_row().cells
         for j, w in enumerate(widths_a):
@@ -390,6 +489,14 @@ async def generate_docx(
         img_url = q.get('image_url')
         if img_url:
             try:
+                # If OCR is requested and we have a matching data URL, try OCR
+                do_ocr = bool(q.get('image_ocr'))
+                if do_ocr and isinstance(img_url, str) and img_url.startswith('data:image/'):
+                    ocr_text = _ocr_data_url(img_url)
+                    if ocr_text:
+                        p.add_run("\n" + ocr_text)
+                        logger.info("Inserted OCR text for question index %s", idx)
+                        raise StopIteration  # Skip image insertion below
                 if img_url.startswith('data:image/'):
                     # data URL
                     header, b64data = img_url.split(',', 1)
@@ -406,6 +513,8 @@ async def generate_docx(
                         img_stream = BytesIO(resp.content)
                         p.add_run().add_picture(img_stream, width=Inches(2.5))
                         logger.info("Fetched and inserted remote image for question index %s (content-type=%s)", idx, content_type)
+            except StopIteration:
+                pass
             except Exception as e:
                 logger.exception("Failed to insert image for question index %s, img_url=%s", idx, img_url)
                 p.add_run(" [Image error]")
@@ -442,7 +551,7 @@ async def generate_docx(
     table_b = doc.add_table(rows=1, cols=5)
     table_b.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_b.autofit = False
-    table_b.left_indent = Inches(0.7)
+    table_b.left_indent = Inches(0.1)
     hdr_cells = table_b.rows[0].cells
     hdr_cells[0].text = "Q.No."
     hdr_cells[1].text = "Question"
@@ -451,10 +560,10 @@ async def generate_docx(
     hdr_cells[4].text = "Marks"
     for c in hdr_cells:
         for p in c.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             for r in p.runs:
                 r.bold = True
-    widths_b = [Inches(0.7), Inches(4.2), Inches(0.8), Inches(0.8), Inches(1.0)]
+    widths_b = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
     for i, w in enumerate(widths_b):
         for row in table_b.rows:
             row.cells[i].width = w
@@ -485,7 +594,7 @@ async def generate_docx(
             row_a[i].width = w
         row_a[0].text = f"{base_no} A"
         p_a = row_a[1].paragraphs[0]
-        p_a.paragraph_format.left_indent = Inches(0.7)
+        p_a.paragraph_format.left_indent = Inches(0.0)
         if qa:
             # Add question text
             p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
@@ -493,6 +602,13 @@ async def generate_docx(
             img_url = qa.get('image_url')
             if img_url:
                 try:
+                    do_ocr = bool(qa.get('image_ocr'))
+                    if do_ocr and isinstance(img_url, str) and img_url.startswith('data:image/'):
+                        ocr_text = _ocr_data_url(img_url)
+                        if ocr_text:
+                            p_a.add_run("\n" + ocr_text)
+                            logger.info("Inserted OCR text for PART-B (a) %s", base_no)
+                            raise StopIteration
                     if img_url.startswith('data:image/'):
                         header, b64data = img_url.split(',', 1)
                         img_bytes = base64.b64decode(b64data)
@@ -508,6 +624,8 @@ async def generate_docx(
                             img_stream = BytesIO(resp.content)
                             p_a.add_run().add_picture(img_stream, width=Inches(2.5))
                             logger.info("Fetched and inserted PART-A remote image for %s (content-type=%s)", idx, content_type)
+                except StopIteration:
+                    pass
                 except Exception as e:
                     logger.exception("Failed to insert PART-A image for %s, img_url=%s", idx, img_url)
                     p_a.add_run(" [Image error]")
@@ -534,7 +652,7 @@ async def generate_docx(
             row_b[i].width = w
         row_b[0].text = f"{base_no} B"
         p_b = row_b[1].paragraphs[0]
-        p_b.paragraph_format.left_indent = Inches(0.7)
+        p_b.paragraph_format.left_indent = Inches(0.0)
         if qb:
             # Add question text
             p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
@@ -542,6 +660,13 @@ async def generate_docx(
             img_url = qb.get('image_url')
             if img_url:
                 try:
+                    do_ocr = bool(qb.get('image_ocr'))
+                    if do_ocr and isinstance(img_url, str) and img_url.startswith('data:image/'):
+                        ocr_text = _ocr_data_url(img_url)
+                        if ocr_text:
+                            p_b.add_run("\n" + ocr_text)
+                            logger.info("Inserted OCR text for PART-B (b) %s", base_no)
+                            raise StopIteration
                     if img_url.startswith('data:image/'):
                         header, b64data = img_url.split(',', 1)
                         img_bytes = base64.b64decode(b64data)
@@ -557,6 +682,8 @@ async def generate_docx(
                             img_stream = BytesIO(resp.content)
                             p_b.add_run().add_picture(img_stream, width=Inches(2.5))
                             logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", idx, content_type)
+                except StopIteration:
+                    pass
                 except Exception as e:
                     logger.exception("Failed to insert PART-B image for %s, img_url=%s", idx, img_url)
                     p_b.add_run(" [Image error]")

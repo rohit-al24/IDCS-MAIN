@@ -305,7 +305,13 @@ const VerifyQuestions = () => {
                                   ) : null}
                                 </div>
                               </TableCell>
-                              <TableCell className="capitalize">{q.type}</TableCell>
+                              <TableCell className="capitalize">{
+                                // Show Part C if excel_type is present (local) or if type is descriptive and question_text contains a C marker (Supabase fallback)
+                                // You may want to adjust this fallback logic to match your data
+                                ((q as any)?.excel_type === 'C' || (q.type === 'descriptive' && /\bpart\s*c\b|\(c\)|\[c\]/i.test(q.question_text)))
+                                  ? 'Part C'
+                                  : q.type
+                              }</TableCell>
                               <TableCell>{q['btl'] ?? '-'}</TableCell>
                               <TableCell>{q.marks ?? '-'}</TableCell>
                               <TableCell>{q['course_outcomes'] ?? '-'}</TableCell>

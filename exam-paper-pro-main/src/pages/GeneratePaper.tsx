@@ -63,34 +63,65 @@ const GeneratePaper = () => {
         return;
       }
 
+
       const sections = template.sections as any[];
       let selectedQuestions: Question[] = [];
-      sections.forEach((section) => {
-        // section.questions: [{ co: 'CO1', btl: 4, marks: 2, type: 'objective' }, ...]
+      let partCQuestions: Question[] = [];
+      let partCNumbering: { number: string; q: Question }[] = [];
+      sections.forEach((section, sectionIdx) => {
         let sectionQuestions: Question[] = [];
         if (section.questions && Array.isArray(section.questions)) {
-          section.questions.forEach((qSpec) => {
-            // Find all questions matching CO, BTL, marks, and type
-            const pool = verifiedQuestions.filter((q) => {
-              const coMatch = (q.course_outcomes || "").toUpperCase().includes((qSpec.co || "").toUpperCase());
-              const btlMatch = q.btl == qSpec.btl;
-              const marksMatch = q.marks == qSpec.marks;
-              const typeMatch = !qSpec.type || q.type === qSpec.type;
-              return coMatch && btlMatch && marksMatch && typeMatch;
-            });
-            // Randomly pick one if multiple
-            if (pool.length > 0) {
-              const chosen = pool[Math.floor(Math.random() * pool.length)];
-              // Remove any 'D.' or 'O.' prefix from question text
-              if (chosen.question_text) {
-                chosen.question_text = chosen.question_text.replace(/^\s*[DO]\.[\s-]*/i, "");
+          section.questions.forEach((qSpec, qIdx) => {
+            // For Part C, filter by Type === 'C' (case-insensitive)
+            if (qSpec.type && qSpec.type.toLowerCase() === 'c') {
+              const pool = verifiedQuestions.filter((q) => {
+                const typeCol = (q.type || "").toString().toUpperCase();
+                return typeCol === 'C';
+              });
+              if (pool.length > 0) {
+                const chosen = pool[Math.floor(Math.random() * pool.length)];
+                if (chosen.question_text) {
+                  chosen.question_text = chosen.question_text.replace(/^\s*[DO]\.[\s-]*/i, "");
+                }
+                // If this is section 3 (index 2), assign 16A/16B
+                if (sectionIdx === 2) {
+                  const num = qIdx === 0 ? '16 A' : '16 B';
+                  partCNumbering.push({ number: num, q: chosen });
+                } else {
+                  partCQuestions.push(chosen);
+                }
               }
-              sectionQuestions.push(chosen);
+            } else {
+              // For other parts, match as before
+              const pool = verifiedQuestions.filter((q) => {
+                // Try to match CO and BTL with possible property names
+                const coVal = (q["course_outcomes"] || "");
+                const coMatch = coVal.toUpperCase().includes((qSpec.co || "").toUpperCase());
+                const btlVal = (q["btl"] || "");
+                const btlMatch = btlVal == qSpec.btl;
+                const marksMatch = q.marks == qSpec.marks;
+                const typeMatch = !qSpec.type || q.type === qSpec.type;
+                return coMatch && btlMatch && marksMatch && typeMatch && ((q.type || '').toLowerCase() !== 'c');
+              });
+              if (pool.length > 0) {
+                const chosen = pool[Math.floor(Math.random() * pool.length)];
+                if (chosen.question_text) {
+                  chosen.question_text = chosen.question_text.replace(/^\s*[DO]\.[\s-]*/i, "");
+                }
+                sectionQuestions.push(chosen);
+              }
             }
           });
         }
         selectedQuestions = [...selectedQuestions, ...sectionQuestions];
       });
+      // Add Part C questions at the end, with 16A/16B if section 3 exists
+      if (partCNumbering.length > 0) {
+        // Insert as objects with number property for later use if needed
+        selectedQuestions = [...selectedQuestions, ...partCNumbering.map((item) => ({ ...item.q, number: item.number }))];
+      } else {
+        selectedQuestions = [...selectedQuestions, ...partCQuestions];
+      }
 
       // Generate answer key
       const key = selectedQuestions

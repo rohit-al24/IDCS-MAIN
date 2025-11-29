@@ -65,7 +65,8 @@ const UploadQuestions = () => {
     const saveSingleQuestion = async (question: Question) => {
       try {
         const titleId = await ensureTitleId('default');
-        const payloadArr = [{
+        // Include image_url or image if present in the question object
+        const payload: any = {
           question_text: question.question_text,
           type: question.type,
           options: question.options || null,
@@ -75,7 +76,10 @@ const UploadQuestions = () => {
           marks: question.marks,
           chapter: question.unit != null ? String(question.unit) : null,
           course_outcomes: null
-        }];
+        };
+        if ((question as any).image_url) payload.image_url = (question as any).image_url;
+        if ((question as any).image) payload.image = (question as any).image;
+        const payloadArr = [payload];
         const bases = resolveBackendBase();
         let lastErr: any = null;
         for (const base of bases) {
@@ -110,38 +114,76 @@ const UploadQuestions = () => {
       setQuestions([...questions, { ...manualQuestion }]);
     };
 
-    // Handle file upload and parse CSV
+    // Handle file upload: send Excel to backend if .xlsx, else parse CSV/TXT locally
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      try {
-        const text = await file.text();
-        const lines = text.split("\n").filter(line => line.trim());
-        if (lines.length < 2) {
-          toast({ title: 'Error', description: 'No questions found in file', variant: 'destructive' });
-          return;
+      const isExcel = file.name.endsWith('.xlsx') || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      if (isExcel) {
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          // Use backend base URL logic from resolveBackendBase
+          const bases = resolveBackendBase();
+          let lastErr: any = null;
+          for (const base of bases) {
+            try {
+              const resp = await fetch(`${base}/api/upload-questions-excel/`, { method: 'POST', body: fd });
+              if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+              const data = await resp.json();
+              // Expecting data.questions: [{...}]
+              if (Array.isArray(data.questions)) {
+                // Map backend fields to Question type
+                const parsed: Question[] = data.questions.map((q: any, idx: number) => ({
+                  question_text: q['Question Bank'] || q.question_text || `Question ${idx + 1}`,
+                  type: (q.TYPE || q.type || 'objective').toLowerCase(),
+                  options: null, // Optionally map if present
+                  correct_answer: q.correct_answer || null,
+                  btl_level: parseInt(q['BTL Level'] || q.btl_level || '1') as BTLLevel,
+                  marks: parseInt(q.Marks || q.marks || '1'),
+                  unit: q.unit ? parseInt(q.unit) : 1,
+                }));
+                setQuestions(parsed);
+                toast({ title: 'File uploaded', description: `${parsed.length} questions parsed from Excel` });
+                return;
+              }
+            } catch (err) { lastErr = err; }
+          }
+          throw lastErr || new Error('Backend unreachable');
+        } catch (err: any) {
+          toast({ title: 'Error', description: err?.message || 'Failed to parse Excel file', variant: 'destructive' });
         }
-        const parsed: Question[] = lines.slice(1).map((line, idx) => {
-          const parts = line.split(',').map(p => p.trim());
-          return {
-            question_text: parts[0] || `Question ${idx + 1}`,
-            type: (parts[1]?.toLowerCase() as QuestionType) || 'objective',
-            options: (parts[1]?.toLowerCase() === 'objective' || parts[1]?.toLowerCase() === 'mcq') ? {
-              A: parts[2] || '',
-              B: parts[3] || '',
-              C: parts[4] || '',
-              D: parts[5] || '',
-            } : null,
-            correct_answer: parts[6] || null,
-            btl_level: (parseInt(parts[7]) as BTLLevel) || 1,
-            marks: parseInt(parts[8]) || 1,
-            unit: parts[9] ? parseInt(parts[9]) : 1,
-          };
-        });
-        setQuestions(parsed);
-        toast({ title: 'File uploaded', description: `${parsed.length} questions parsed` });
-      } catch (err: any) {
-        toast({ title: 'Error', description: 'Failed to parse file', variant: 'destructive' });
+      } else {
+        // Fallback: parse CSV/TXT locally
+        try {
+          const text = await file.text();
+          const lines = text.split("\n").filter(line => line.trim());
+          if (lines.length < 2) {
+            toast({ title: 'Error', description: 'No questions found in file', variant: 'destructive' });
+            return;
+          }
+          const parsed: Question[] = lines.slice(1).map((line, idx) => {
+            const parts = line.split(',').map(p => p.trim());
+            return {
+              question_text: parts[0] || `Question ${idx + 1}`,
+              type: (parts[1]?.toLowerCase() as QuestionType) || 'objective',
+              options: (parts[1]?.toLowerCase() === 'objective' || parts[1]?.toLowerCase() === 'mcq') ? {
+                A: parts[2] || '',
+                B: parts[3] || '',
+                C: parts[4] || '',
+                D: parts[5] || '',
+              } : null,
+              correct_answer: parts[6] || null,
+              btl_level: (parseInt(parts[7]) as BTLLevel) || 1,
+              marks: parseInt(parts[8]) || 1,
+              unit: parts[9] ? parseInt(parts[9]) : 1,
+            };
+          });
+          setQuestions(parsed);
+          toast({ title: 'File uploaded', description: `${parsed.length} questions parsed` });
+        } catch (err: any) {
+          toast({ title: 'Error', description: 'Failed to parse file', variant: 'destructive' });
+        }
       }
     };
 

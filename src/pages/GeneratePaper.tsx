@@ -1,5 +1,5 @@
-// --- Image preview logic (copied from VerifyQuestions) ---
-import { useRef } from "react";
+
+import { useState, useEffect, useRef } from "react";
 
 type ImageSrcs = Record<string, string>;
 
@@ -73,7 +73,6 @@ function useQuestionImages(questions: any[]): ImageSrcs {
   }, [questions]);
   return imageSrcs;
 }
-import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +86,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import { Document, Packer, Paragraph, TextRun, ImageRun } from "docx";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
+import { BACKEND_BASE_URL } from "@/config/api";
 
 type Template = Tables<"templates">;
 type Question = Tables<"question_bank">;
@@ -147,6 +147,9 @@ const GeneratePaper = () => {
   // --- Image hooks must be at the top level ---
   const imageSrcs1 = useQuestionImages(generatedQuestions1);
   const imageSrcs2 = useQuestionImages(generatedQuestions2);
+  // Track per-question OCR selection (convert image to text in DOCX)
+  const [ocrSelections1, setOcrSelections1] = useState<Record<string, boolean>>({});
+  const [ocrSelections2, setOcrSelections2] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchTemplates();
@@ -314,7 +317,7 @@ const GeneratePaper = () => {
           const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
           const coNorm = (config.co || 'CO1').toString().trim().toLowerCase();
           const typeMatch = !config.type || q.type === config.type;
-          const coMatch = qco === coNorm;
+          const coMatch = coNorm === 'random' ? true : (qco === coNorm);
           const btlMatch = !config.btl || config.btl === 'random' || (String((q as any).btl) === String(config.btl).replace(/BTL/,'') ) || (String((q as any).btl) === String(config.btl));
           const notUsed = !pickedIds.has(q.id);
           const marksMatch = Number(q.marks) === Number(config.marks || 16);
@@ -368,6 +371,67 @@ const GeneratePaper = () => {
           generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         }
+      }
+    }
+    // Part C: Single pair (16.a / 16.b), fetch 16-mark questions but allow projecting marks via section.projectionMarks
+    const sectionC = (template.sections as any[]).find((s: any) => (s.baseQuestionNumber === 16) || ((s.name || '').toLowerCase().includes('section c')));
+    if (sectionC) {
+      const baseNumber = 16;
+      const configQs: any[] = sectionC.questions || [];
+      const cfgA = configQs[0] || {}; const cfgB = configQs[1] || {};
+      const requiredMarks = Number(sectionC.marksPerQuestion || 16); // fetch from 16 marks
+      const displayMarks = Number(sectionC.projectionMarks || requiredMarks);
+      const poolA = verifiedQuestions.filter(q => {
+        const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
+        const coNormA = String(cfgA.co || 'CO1').toLowerCase();
+        const coMatch = coNormA === 'random' ? true : (qco === coNormA);
+        const typeMatch = !cfgA.type || q.type === cfgA.type || q.type === 'descriptive';
+        const btlMatch = !cfgA.btl || cfgA.btl === 'random' || String((q as any).btl) === String(cfgA.btl).replace(/BTL/i,'');
+        const notUsed = !pickedIds.has(q.id);
+        const marksMatch = Number(q.marks) === requiredMarks;
+        // If excelType hint is provided, honor TYPE=C style flags when available on the record
+        const typeLetter = String(((q as any).excel_type || (q as any).type_letter || (q as any).TYPE || '')).toUpperCase();
+        const excelTypeOk = sectionC.excelType ? (typeLetter === String(sectionC.excelType).toUpperCase()) : true;
+        return coMatch && typeMatch && btlMatch && notUsed && marksMatch && excelTypeOk;
+      });
+      let qa:any = null, qb:any = null;
+      if (poolA.length > 0) {
+        qa = poolA[Math.floor(Math.random()*poolA.length)];
+        const qaBTL = String((qa as any).btl);
+        const poolB = verifiedQuestions.filter(q => {
+          const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
+          const coNormB = String(cfgB.co || cfgA.co || 'CO1').toLowerCase();
+          const coMatch = coNormB === 'random' ? true : (qco === coNormB);
+          const typeMatch = !cfgB.type || q.type === cfgB.type || q.type === 'descriptive';
+          const btlMatch = !cfgB.btl || cfgB.btl === 'random' || String((q as any).btl) === qaBTL;
+          const notUsed = !pickedIds.has(q.id) && q.id !== qa.id;
+          const marksMatch = Number(q.marks) === requiredMarks;
+          const typeLetter = String(((q as any).excel_type || (q as any).type_letter || (q as any).TYPE || '')).toUpperCase();
+          const excelTypeOk = sectionC.excelType ? (typeLetter === String(sectionC.excelType).toUpperCase()) : true;
+          return coMatch && typeMatch && btlMatch && notUsed && marksMatch && excelTypeOk;
+        });
+        if (poolB.length > 0) {
+          qb = poolB[Math.floor(Math.random()*poolB.length)];
+        }
+        // assign a
+        pickedIds.add(qa.id);
+        (qa as any).co = (qa as any).course_outcomes; (qa as any).part = 'C';
+        (qa as any).baseNumber = baseNumber; (qa as any).sub = 'a'; (qa as any).or = false;
+        (qa as any).marks = displayMarks; generated.push(qa as any);
+        // assign b or placeholder
+        if (qb) {
+          pickedIds.add(qb.id);
+          (qb as any).co = (qb as any).course_outcomes; (qb as any).part = 'C';
+          (qb as any).baseNumber = baseNumber; (qb as any).sub = 'b'; (qb as any).or = true;
+          (qb as any).marks = displayMarks; generated.push(qb as any);
+        } else {
+          generated.push({ part: 'C', baseNumber, sub: 'b', or: true, marks: displayMarks, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: (cfgB.co||cfgA.co) } as any);
+        }
+      } else {
+        // placeholders if none
+        const display = displayMarks;
+        generated.push({ part: 'C', baseNumber, sub: 'a', or: false, marks: display, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: (cfgA.co||'CO1') } as any);
+        generated.push({ part: 'C', baseNumber, sub: 'b', or: true, marks: display, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: (cfgB.co||cfgA.co||'CO1') } as any);
       }
     }
     const answerKey = generated.filter(q => (q as any).correct_answer).map(q => ({
@@ -557,19 +621,9 @@ const GeneratePaper = () => {
     }
   };
 
-  const BANNER_IMAGE_URL = "/banner.jpg"; // Use banner.jpg from public folder
-  // Backend URL with intelligent fallbacks (env -> 4000 -> 8000)
-  const envBackend = (import.meta as any).env?.VITE_BACKEND_URL as string | undefined;
-  const sanitizeBase = (raw?: string) => {
-    if (!raw) return '';
-    // If user entered just a port like ':4000' normalize
-    if (/^:?\d+$/.test(raw)) return `http://localhost${raw.startsWith(':') ? raw : ':' + raw}`;
-    if (!/^https?:\/\//i.test(raw)) return `http://${raw}`; // prefix scheme if missing
-    return raw.replace(/\/$/, '');
-  };
-  const primaryBase = sanitizeBase(envBackend) || 'http://127.0.0.1:4000';
-  const candidateBases = [primaryBase, 'http://localhost:8000'];
-  const [activeBackend, setActiveBackend] = useState<string>(primaryBase);
+  const BANNER_IMAGE_URL = "/image.png"; // Use banner.jpg from public folder
+  // Use backend URL from config
+  const [activeBackend, setActiveBackend] = useState<string>(BACKEND_BASE_URL);
 
   const downloadPaper = async (questions: any[], label: string) => {
     const template = templates.find((t) => t.id === selectedTemplateId);
@@ -587,7 +641,7 @@ const GeneratePaper = () => {
         cn: docMeta.cn || banner,
         qpcode: docMeta.qpcode || "QP123",
         exam_title: docMeta.exam_title || banner,
-        regulation: docMeta.regulation || "Regulation 2024",
+        regulation: docMeta.regulation || "Regulation 2023",
         semester: docMeta.semester || "Second Semester",
       };
       // Map questions to backend format
@@ -618,6 +672,9 @@ const GeneratePaper = () => {
         let src: string | null = q.image_url || null;
         if (questions === generatedQuestions1) src = (imageSrcs1 as any)[q.id] || src;
         else if (questions === generatedQuestions2) src = (imageSrcs2 as any)[q.id] || src;
+        const ocrSelected = questions === generatedQuestions1
+          ? Boolean(ocrSelections1[q.id])
+          : Boolean(ocrSelections2[q.id]);
         return ({
         number: q.baseNumber,
         sub: q.sub || undefined,
@@ -625,38 +682,62 @@ const GeneratePaper = () => {
         co: q.co || q.courseOutcome || 'CO1',
         btl: q.btl || 'BTL1',
         marks: q.marks,
-        part: q.part || (q.baseNumber <= 10 ? 'A' : 'B'),
+        part: q.part || (q.baseNumber <= 10 ? 'A' : (q.baseNumber >= 16 ? 'C' : 'B')),
         or: !!q.or,
         image_url: await toDataUrl(src || null),
+        image_ocr: ocrSelected,
       });
       }));
       // Prepare form data
       const formData = new FormData();
       formData.append("questions", JSON.stringify(mapped));
-      Object.entries(meta).forEach(([k, v]) => formData.append(k, v));
-      // Fetch docx from backend with error handling
-      // Attempt fetch with fallbacks
-      let success = false; let lastErr: any = null;
-      for (const base of candidateBases) {
-        try {
-          const url = `${base}/api/template/generate-docx`;
-          const res = await fetch(url, { method: 'POST', body: formData });
-          if (res.ok) {
-            const blob = await res.blob();
-            // Use the question bank name as the file name
-            const safeQnBank = (qnBankName || 'Question_Bank').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '_');
-            saveAs(blob, `${safeQnBank}_${label.replace(/\s+/g,'_')}.docx`);
-            if (base !== activeBackend) setActiveBackend(base);
-            toast({ title: 'Downloaded', description: `DOCX (${label}) via ${base}`, variant: 'default' });
-            success = true; break;
-          } else {
-            lastErr = new Error(`Status ${res.status}`);
+      // Include image data URLs for selected OCR to aid backend processing
+      const ocrPayload: Record<string, string> = {};
+      for (const q of questions) {
+        const ocrSelected = questions === generatedQuestions1
+          ? Boolean(ocrSelections1[q.id])
+          : Boolean(ocrSelections2[q.id]);
+        if (ocrSelected) {
+          const src: string | null = (questions === generatedQuestions1)
+            ? ((imageSrcs1 as any)[q.id] || q.image_url || null)
+            : ((imageSrcs2 as any)[q.id] || q.image_url || null);
+          const dataUrl = await toDataUrl(src || null);
+          if (dataUrl) {
+            ocrPayload[String(q.id || q.baseNumber)] = dataUrl;
           }
-        } catch (e) { lastErr = e; }
+        }
       }
-      if (!success) {
-        toast({ title: 'Connection Error', description: `Failed all backend attempts (${candidateBases.join(', ')}). Ensure server running with CORS enabled.`, variant: 'destructive' });
-        console.error('DOCX generation fetch failed', lastErr);
+      formData.append("ocr_images", JSON.stringify(ocrPayload));
+      Object.entries(meta).forEach(([k, v]) => formData.append(k, v));
+      // Provide optional title image beside exam title (logo). Adjust path as needed.
+      // Only send title_image_url if logo is present in public folder
+      try {
+        const origin = window.location?.origin || "";
+        const logoPath = "/image.png";
+        if (origin) {
+          const url = origin + logoPath;
+          const resp = await fetch(url, { method: 'HEAD' });
+          if (resp.ok) {
+            formData.append("title_image_url", url);
+          }
+        }
+      } catch {}
+      // Fetch docx from backend using the common config variable
+      try {
+        const url = `${BACKEND_BASE_URL}/api/template/generate-docx`;
+        const res = await fetch(url, { method: 'POST', body: formData });
+        if (res.ok) {
+          const blob = await res.blob();
+          const safeQnBank = (qnBankName || 'Question_Bank').replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '_');
+          saveAs(blob, `${safeQnBank}_${label.replace(/\s+/g,'_')}.docx`);
+          setActiveBackend(BACKEND_BASE_URL);
+          toast({ title: 'Downloaded', description: `DOCX (${label}) via ${BACKEND_BASE_URL}`, variant: 'default' });
+        } else {
+          toast({ title: 'Connection Error', description: `Backend error: ${res.status}`, variant: 'destructive' });
+        }
+      } catch (err) {
+        toast({ title: 'Connection Error', description: `Failed to connect to backend.`, variant: 'destructive' });
+        console.error('DOCX generation fetch failed', err);
       }
     } else if (downloadFormat === "excel") {
       // Banner as first row in Excel
@@ -793,7 +874,19 @@ const GeneratePaper = () => {
                     </div>
                     <div>
                       <Label>Exam Title</Label>
-                      <Input value={docMeta.exam_title || templates.find(t=>t.id===selectedTemplateId)?.name || ''} onChange={e=>setDocMeta(v=>({...v, exam_title: e.target.value}))} placeholder="e.g., Mid Term Examination" />
+                      <Select
+                        value={docMeta.exam_title}
+                        onValueChange={val => setDocMeta(v => ({ ...v, exam_title: val }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select exam title" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CIA I">CIA I</SelectItem>
+                          <SelectItem value="CIA II">CIA II</SelectItem>
+                          <SelectItem value="MODEL EXAM">Model Examination</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label>Regulation</Label>
@@ -848,7 +941,18 @@ const GeneratePaper = () => {
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                               </span>
                               {(imageSrcs1[q.id] || q.image_url) ? (
-                                <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                <div>
+                                  <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(ocrSelections1[q.id])}
+                                      onChange={e => setOcrSelections1(prev => ({ ...prev, [q.id]: e.target.checked }))}
+                                      id={`ocr-c1-${q.id || idx}`}
+                                    />
+                                    <Label htmlFor={`ocr-c1-${q.id || idx}`} className="cursor-pointer text-xs">Convert image to text in DOCX</Label>
+                                  </div>
+                                </div>
                               ) : null}
                             </div>
                             {q.options && (
@@ -904,7 +1008,18 @@ const GeneratePaper = () => {
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                               </span>
                               {(imageSrcs2[q.id] || q.image_url) ? (
-                                <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                <div>
+                                  <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(ocrSelections2[q.id])}
+                                      onChange={e => setOcrSelections2(prev => ({ ...prev, [q.id]: e.target.checked }))}
+                                      id={`ocr-c2-${q.id || idx}`}
+                                    />
+                                    <Label htmlFor={`ocr-c2-${q.id || idx}`} className="cursor-pointer text-xs">Convert image to text in DOCX</Label>
+                                  </div>
+                                </div>
                               ) : null}
                             </div>
                             {q.options && (

@@ -7,7 +7,18 @@ from server.routes.upload_questions_excel import router as upload_questions_rout
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'local_store.db')
+
+# Use a writable DB path: next to EXE if frozen, else next to this file
+def get_db_path():
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller EXE
+        exe_dir = os.path.dirname(sys.executable)
+        return os.path.join(exe_dir, 'local_store.db')
+    else:
+        return os.path.join(os.path.dirname(__file__), 'local_store.db')
+
+import sys
+DB_PATH = get_db_path()
 
 def get_conn():
     return sqlite3.connect(DB_PATH)
@@ -411,6 +422,79 @@ async def generate_docx(
                 for p in merged.paragraphs:
                     p.alignment=WD_ALIGN_PARAGRAPH.CENTER
                     for r in p.runs: r.bold=True
+
+    # PART-C (optional) - typically single pair 16.a / 16.b with OR
+    c_items = [q for q in parsed if str(q.get('part','')).upper()=='C']
+    if c_items:
+        # Determine counts and projection marks for header
+        from collections import defaultdict
+        c_groups=defaultdict(list)
+        for q in c_items:
+            key=str(q.get('number') or q.get('baseNumber') or 16)
+            # normalize to base number such as 16
+            try:
+                key = str(int(str(key).split('.')[0]))
+            except Exception:
+                key = '16'
+            c_groups[key].append(q)
+        # Use first question's marks as projection marks
+        first_c = c_items[0]
+        proj_marks = first_c.get('marks') or '10'
+        try:
+            count_pairs = len(c_groups.keys())
+            total_marks = int(str(proj_marks)) * count_pairs
+            add_bold_line(f'PART – C                          ({count_pairs} x {proj_marks} = {total_marks} Marks)', True, 12)
+        except Exception:
+            add_bold_line('PART – C', True, 12)
+        table_c=doc.add_table(rows=1, cols=5); table_c.alignment=WD_TABLE_ALIGNMENT.CENTER; table_c.autofit=False
+        ch=table_c.rows[0].cells; ch[0].text='Q.No.'; ch[1].text='Question'; ch[2].text='CO'; ch[3].text='BTL'; ch[4].text='Marks'
+        widths_c=[Inches(0.9), Inches(4.5), Inches(0.9), Inches(0.9), Inches(1.0)]
+        for i,w in enumerate(widths_c):
+            for row in table_c.rows: row.cells[i].width=w
+        for c in ch:
+            for p in c.paragraphs:
+                p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+                for r in p.runs: r.bold=True
+        for base in sorted(c_groups.keys(), key=lambda k: int(k)):
+            group=c_groups[base]
+            # try to order a then b
+            try:
+                group.sort(key=lambda q: str(q.get('sub','a')))
+            except Exception: pass
+            # (a)
+            row_a=table_c.add_row().cells
+            for i,w in enumerate(widths_c): row_a[i].width=w
+            row_a[0].text=f'{base}.a'
+            row_a[1].text=first(group[0] if group else {},['text','question_text']) if group else ''
+            row_a[2].text=first(group[0] if group else {},['co','course_outcomes']) if group else ''
+            btl_val=first(group[0] if group else {},['btl'])
+            if btl_val and not btl_val.upper().startswith('BTL'): btl_val=f'BTL{btl_val}'
+            row_a[3].text=btl_val
+            row_a[4].text=str((group[0] or {}).get('marks','')) if group else ''
+            for p in row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs:
+                p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+            # OR row
+            or_row=table_c.add_row().cells
+            for i,w in enumerate(widths_c): or_row[i].width=w
+            merged=or_row[0]
+            for ci in range(1,len(or_row)): merged=merged.merge(or_row[ci])
+            merged.text='(OR)'
+            for p in merged.paragraphs:
+                p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+                for r in p.runs: r.bold=True
+            # (b)
+            row_b=table_c.add_row().cells
+            for i,w in enumerate(widths_c): row_b[i].width=w
+            row_b[0].text=f'{base}.b'
+            sec = group[1] if len(group)>1 else {}
+            row_b[1].text=first(sec,['text','question_text'])
+            row_b[2].text=first(sec,['co','course_outcomes'])
+            btl_val=first(sec,['btl'])
+            if btl_val and not btl_val.upper().startswith('BTL'): btl_val=f'BTL{btl_val}'
+            row_b[3].text=btl_val
+            row_b[4].text=str(sec.get('marks',''))
+            for p in row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs:
+                p.alignment=WD_ALIGN_PARAGRAPH.CENTER
 
     doc.add_paragraph(' ')
     doc.add_paragraph('******************').bold=True

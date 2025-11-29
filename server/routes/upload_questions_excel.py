@@ -61,160 +61,159 @@ def upload_questions_excel(file: UploadFile = File(...)):
 
         imgs = list(getattr(ws, '_images', []))
         print(f"[Excel Debug] Found {len(imgs)} images on sheet")
-        # If openpyxl didn't expose images, try reading the .xlsx zip parts (/xl/drawings and /xl/media)
+        # Always also read the .xlsx zip parts (/xl/drawings and /xl/media) to get real image bytes
         try:
-            if len(imgs) == 0:
-                z = zipfile.ZipFile(BytesIO(data))
-                print(f"[Excel Debug ZIP] zip contains {len(z.namelist())} entries")
-                # optionally print some entries for debugging (limited)
-                sample = z.namelist()[:40]
-                print(f"[Excel Debug ZIP] sample entries: {sample}")
+            z = zipfile.ZipFile(BytesIO(data))
+            print(f"[Excel Debug ZIP] zip contains {len(z.namelist())} entries")
+            # optionally print some entries for debugging (limited)
+            sample = z.namelist()[:40]
+            print(f"[Excel Debug ZIP] sample entries: {sample}")
                 # find the sheet xml corresponding to this worksheet
-                try:
-                    sheet_index = wb.sheetnames.index(ws.title) + 1
-                except Exception:
-                    sheet_index = 1
-                sheet_path = f'xl/worksheets/sheet{sheet_index}.xml'
-                if sheet_path in z.namelist():
-                    print(f"[Excel Debug ZIP] found sheet path: {sheet_path}")
-                    sheet_xml = z.read(sheet_path)
-                    st = ET.fromstring(sheet_xml)
+            try:
+                sheet_index = wb.sheetnames.index(ws.title) + 1
+            except Exception:
+                sheet_index = 1
+            sheet_path = f'xl/worksheets/sheet{sheet_index}.xml'
+            if sheet_path in z.namelist():
+                print(f"[Excel Debug ZIP] found sheet path: {sheet_path}")
+                sheet_xml = z.read(sheet_path)
+                st = ET.fromstring(sheet_xml)
                     # namespace for sheet drawing
-                    ns_sheet = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', 'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
-                    drawing_elem = st.find('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}drawing')
-                    print(f"[Excel Debug ZIP] drawing_elem: {drawing_elem}")
-                    if drawing_elem is not None:
-                        rId = drawing_elem.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
-                        print(f"[Excel Debug ZIP] drawing rId: {rId}")
+                ns_sheet = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', 'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+                drawing_elem = st.find('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}drawing')
+                print(f"[Excel Debug ZIP] drawing_elem: {drawing_elem}")
+                if drawing_elem is not None:
+                    rId = drawing_elem.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                    print(f"[Excel Debug ZIP] drawing rId: {rId}")
                         # read sheet rels to find drawing target
-                        rels_path = f'xl/worksheets/_rels/sheet{sheet_index}.xml.rels'
-                        print(f"[Excel Debug ZIP] looking for rels at: {rels_path} (exists={rels_path in z.namelist()})")
-                        if rels_path in z.namelist():
-                            rels_doc = ET.fromstring(z.read(rels_path))
-                            draw_target = None
-                            for rel in rels_doc.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
-                                print(f"[Excel Debug ZIP] sheet rel: Id={rel.attrib.get('Id')} Target={rel.attrib.get('Target')}")
-                                if rel.attrib.get('Id') == rId:
-                                    draw_target = rel.attrib.get('Target')
-                                    break
-                            print(f"[Excel Debug ZIP] draw_target={draw_target}")
-                            if draw_target:
+                    rels_path = f'xl/worksheets/_rels/sheet{sheet_index}.xml.rels'
+                    print(f"[Excel Debug ZIP] looking for rels at: {rels_path} (exists={rels_path in z.namelist()})")
+                    if rels_path in z.namelist():
+                        rels_doc = ET.fromstring(z.read(rels_path))
+                        draw_target = None
+                        for rel in rels_doc.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
+                            print(f"[Excel Debug ZIP] sheet rel: Id={rel.attrib.get('Id')} Target={rel.attrib.get('Target')}")
+                            if rel.attrib.get('Id') == rId:
+                                draw_target = rel.attrib.get('Target')
+                                break
+                        print(f"[Excel Debug ZIP] draw_target={draw_target}")
+                        if draw_target:
                                 # normalize path e.g. ../drawings/drawing1.xml -> xl/drawings/drawing1.xml
                                 # prefer forward slashes for ZIP entries
-                                if draw_target.startswith('../'):
-                                    drawing_path = 'xl/' + draw_target.replace('../', '')
-                                else:
-                                    drawing_path = 'xl/' + draw_target.lstrip('./')
-                                drawing_path = drawing_path.replace('\\', '/').replace('//', '/')
-                                print(f"[Excel Debug ZIP] drawing_path normalized: {drawing_path} (exists={drawing_path in z.namelist()})")
-                                if drawing_path in z.namelist():
-                                    drawing_xml = ET.fromstring(z.read(drawing_path))
+                            if draw_target.startswith('../'):
+                                drawing_path = 'xl/' + draw_target.replace('../', '')
+                            else:
+                                drawing_path = 'xl/' + draw_target.lstrip('./')
+                            drawing_path = drawing_path.replace('\\', '/').replace('//', '/')
+                            print(f"[Excel Debug ZIP] drawing_path normalized: {drawing_path} (exists={drawing_path in z.namelist()})")
+                            if drawing_path in z.namelist():
+                                drawing_xml = ET.fromstring(z.read(drawing_path))
                                     # build rels for drawing (map rId -> media target)
-                                    drawing_rels_path = os.path.dirname(drawing_path).rstrip('/') + '/_rels/' + os.path.basename(drawing_path) + '.rels'
-                                    drawing_rels_path = drawing_rels_path.replace('\\', '/').replace('//', '/')
-                                    print(f"[Excel Debug ZIP] drawing_rels_path: {drawing_rels_path} (exists={drawing_rels_path in z.namelist()})")
-                                    rels_map = {}
-                                    if drawing_rels_path in z.namelist():
-                                        dr = ET.fromstring(z.read(drawing_rels_path))
-                                        for rel in dr.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
-                                            Id = rel.attrib.get('Id')
-                                            Target = rel.attrib.get('Target')
-                                            print(f"[Excel Debug ZIP] drawing rel: Id={Id} Target={Target}")
-                                            if Id and Target:
-                                                # resolve relative target against drawing directory using posix normalization
-                                                rel_base = os.path.dirname(drawing_path).replace('\\', '/').rstrip('/')
-                                                # Target may be like '../media/image1.png' or 'media/image1.png'
-                                                combined = posixpath.normpath(posixpath.join(rel_base, Target)).replace('\\', '/')
-                                                # ensure it starts with xl/
-                                                if not combined.startswith('xl/'):
-                                                    combined = combined.lstrip('/')
-                                                    combined = 'xl/' + combined
-                                                rels_map[Id] = combined
-                                    print(f"[Excel Debug ZIP] rels_map keys: {list(rels_map.keys())}")
+                                drawing_rels_path = os.path.dirname(drawing_path).rstrip('/') + '/_rels/' + os.path.basename(drawing_path) + '.rels'
+                                drawing_rels_path = drawing_rels_path.replace('\\', '/').replace('//', '/')
+                                print(f"[Excel Debug ZIP] drawing_rels_path: {drawing_rels_path} (exists={drawing_rels_path in z.namelist()})")
+                                rels_map = {}
+                                if drawing_rels_path in z.namelist():
+                                    dr = ET.fromstring(z.read(drawing_rels_path))
+                                    for rel in dr.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
+                                        Id = rel.attrib.get('Id')
+                                        Target = rel.attrib.get('Target')
+                                        print(f"[Excel Debug ZIP] drawing rel: Id={Id} Target={Target}")
+                                        if Id and Target:
+                                            # resolve relative target against drawing directory using posix normalization
+                                            rel_base = os.path.dirname(drawing_path).replace('\\', '/').rstrip('/')
+                                            # Target may be like '../media/image1.png' or 'media/image1.png'
+                                            combined = posixpath.normpath(posixpath.join(rel_base, Target)).replace('\\', '/')
+                                            # ensure it starts with xl/
+                                            if not combined.startswith('xl/'):
+                                                combined = combined.lstrip('/')
+                                                combined = 'xl/' + combined
+                                            rels_map[Id] = combined
+                                print(f"[Excel Debug ZIP] rels_map keys: {list(rels_map.keys())}")
 
                                     # iterate anchors
-                                    xdr_ns = '{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}'
-                                    a_ns = '{http://schemas.openxmlformats.org/drawingml/2006/main}'
-                                    anchors = drawing_xml.findall('.//'+xdr_ns+'twoCellAnchor') + drawing_xml.findall('.//'+xdr_ns+'oneCellAnchor')
-                                    print(f"[Excel Debug ZIP] found {len(anchors)} anchors in drawing_xml")
-                                    for anchor in anchors:
+                                xdr_ns = '{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}'
+                                a_ns = '{http://schemas.openxmlformats.org/drawingml/2006/main}'
+                                anchors = drawing_xml.findall('.//'+xdr_ns+'twoCellAnchor') + drawing_xml.findall('.//'+xdr_ns+'oneCellAnchor')
+                                print(f"[Excel Debug ZIP] found {len(anchors)} anchors in drawing_xml")
+                                for anchor in anchors:
                                         # find from row/col
-                                        frm = anchor.find('.//'+xdr_ns+'from')
-                                        if frm is None:
-                                            continue
-                                        col_elem = frm.find('./'+xdr_ns+'col')
-                                        row_elem = frm.find('./'+xdr_ns+'row')
-                                        if col_elem is None or row_elem is None:
-                                            continue
-                                        try:
-                                            a_col = int(col_elem.text) + 1
-                                            a_row = int(row_elem.text) + 1
-                                        except Exception:
-                                            continue
+                                    frm = anchor.find('.//'+xdr_ns+'from')
+                                    if frm is None:
+                                        continue
+                                    col_elem = frm.find('./'+xdr_ns+'col')
+                                    row_elem = frm.find('./'+xdr_ns+'row')
+                                    if col_elem is None or row_elem is None:
+                                        continue
+                                    try:
+                                        a_col = int(col_elem.text) + 1
+                                        a_row = int(row_elem.text) + 1
+                                    except Exception:
+                                        continue
                                         # find blip embed id
-                                        blip = anchor.find('.//'+xdr_ns+'pic//'+xdr_ns+'blipFill//'+a_ns+'blip')
-                                        if blip is None:
-                                            blip = anchor.find('.//'+xdr_ns+'blipFill//'+a_ns+'blip')
-                                        if blip is None:
-                                            print(f"[Excel Debug ZIP] no blip for anchor at ({a_row},{a_col})")
-                                            continue
-                                        embed = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
-                                        print(f"[Excel Debug ZIP] anchor at ({a_row},{a_col}) embed={embed}")
-                                        if not embed:
-                                            continue
-                                        media_target = rels_map.get(embed)
-                                        print(f"[Excel Debug ZIP] media_target for embed {embed}: {media_target}")
-                                        if not media_target:
-                                            continue
+                                    blip = anchor.find('.//'+xdr_ns+'pic//'+xdr_ns+'blipFill//'+a_ns+'blip')
+                                    if blip is None:
+                                        blip = anchor.find('.//'+xdr_ns+'blipFill//'+a_ns+'blip')
+                                    if blip is None:
+                                        print(f"[Excel Debug ZIP] no blip for anchor at ({a_row},{a_col})")
+                                        continue
+                                    embed = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                                    print(f"[Excel Debug ZIP] anchor at ({a_row},{a_col}) embed={embed}")
+                                    if not embed:
+                                        continue
+                                    media_target = rels_map.get(embed)
+                                    print(f"[Excel Debug ZIP] media_target for embed {embed}: {media_target}")
+                                    if not media_target:
+                                        continue
                                         # normalize media path (use forward slashes, avoid duplicate xl/ prefixes)
-                                        media_path = str(media_target).replace('\\', '/').replace('//', '/')
-                                        # remove any leading ./ or ../ segments
-                                        while media_path.startswith('./') or media_path.startswith('../'):
-                                            if media_path.startswith('../'):
-                                                media_path = media_path[3:]
-                                            elif media_path.startswith('./'):
-                                                media_path = media_path[2:]
-                                        if not media_path.startswith('xl/'):
-                                            media_path = 'xl/' + media_path.lstrip('/')
-                                        # collapse accidental duplicates
-                                        media_path = media_path.replace('xl/xl/', 'xl/')
-                                        print(f"[Excel Debug ZIP] normalized media_path: {media_path} (exists={media_path in z.namelist()})")
-                                        if media_path in z.namelist():
-                                            media_bytes = z.read(media_path)
-                                            # store a lightweight image dict for later handling
-                                            image_cell_map[(a_row, a_col)] = {'bytes': media_bytes, 'anchor_row': a_row, 'anchor_col': a_col}
-                                            # map to the nearest non-empty question row across the sheet
-                                            target_row = a_row
-                                            try:
-                                                candidate_rows = []
-                                                if q_col_idx is not None:
-                                                    for rr in range(header_row_idx + 1, ws.max_row + 1):
-                                                        v = ws.cell(row=rr, column=q_col_idx).value
-                                                        if v is not None and str(v).strip() != '':
-                                                            candidate_rows.append(rr)
-                                                if candidate_rows:
-                                                    # pick the nearest row by absolute distance
-                                                    target_row = min(candidate_rows, key=lambda x: abs(x - a_row))
-                                                else:
-                                                    # fallback to nearest within +/- 50 rows
-                                                    lo = max(header_row_idx + 1, a_row - 50)
-                                                    hi = min(ws.max_row, a_row + 50)
-                                                    target_row = a_row
-                                                    for rr in range(lo, hi + 1):
-                                                        v = ws.cell(row=rr, column=q_col_idx).value if q_col_idx is not None else None
-                                                        if v is not None and str(v).strip() != '':
-                                                            target_row = rr
-                                                            break
-                                            except Exception:
+                                    media_path = str(media_target).replace('\\', '/').replace('//', '/')
+                                    # remove any leading ./ or ../ segments
+                                    while media_path.startswith('./') or media_path.startswith('../'):
+                                        if media_path.startswith('../'):
+                                            media_path = media_path[3:]
+                                        elif media_path.startswith('./'):
+                                            media_path = media_path[2:]
+                                    if not media_path.startswith('xl/'):
+                                        media_path = 'xl/' + media_path.lstrip('/')
+                                    # collapse accidental duplicates
+                                    media_path = media_path.replace('xl/xl/', 'xl/')
+                                    print(f"[Excel Debug ZIP] normalized media_path: {media_path} (exists={media_path in z.namelist()})")
+                                    if media_path in z.namelist():
+                                        media_bytes = z.read(media_path)
+                                        # store a lightweight image dict for later handling
+                                        image_cell_map[(a_row, a_col)] = {'bytes': media_bytes, 'anchor_row': a_row, 'anchor_col': a_col}
+                                        # map to the nearest non-empty question row across the sheet
+                                        target_row = a_row
+                                        try:
+                                            candidate_rows = []
+                                            if q_col_idx is not None:
+                                                for rr in range(header_row_idx + 1, ws.max_row + 1):
+                                                    v = ws.cell(row=rr, column=q_col_idx).value
+                                                    if v is not None and str(v).strip() != '':
+                                                        candidate_rows.append(rr)
+                                            if candidate_rows:
+                                                # pick the nearest row by absolute distance
+                                                target_row = min(candidate_rows, key=lambda x: abs(x - a_row))
+                                            else:
+                                                # fallback to nearest within +/- 50 rows
+                                                lo = max(header_row_idx + 1, a_row - 50)
+                                                hi = min(ws.max_row, a_row + 50)
                                                 target_row = a_row
-                                            if target_row not in image_row_map:
-                                                # Always include the image bytes for later base64 encoding
-                                                image_row_map[target_row] = {
-                                                    'anchor_row': a_row,
-                                                    'anchor_col': a_col,
-                                                    'bytes': media_bytes
-                                                }
-                                            print(f"[Excel Debug ZIP] Image media {media_path} anchor ({a_row},{a_col}) -> question_row {target_row}")
+                                                for rr in range(lo, hi + 1):
+                                                    v = ws.cell(row=rr, column=q_col_idx).value if q_col_idx is not None else None
+                                                    if v is not None and str(v).strip() != '':
+                                                        target_row = rr
+                                                        break
+                                        except Exception:
+                                            target_row = a_row
+                                        if target_row not in image_row_map:
+                                            # Always include the image bytes for later base64 encoding
+                                            image_row_map[target_row] = {
+                                                'anchor_row': a_row,
+                                                'anchor_col': a_col,
+                                                'bytes': media_bytes
+                                            }
+                                        print(f"[Excel Debug ZIP] Image media {media_path} anchor ({a_row},{a_col}) -> question_row {target_row}")
         except Exception as e:
             print(f"[Excel Debug] ZIP parse failed: {e}")
         for img in imgs:
@@ -509,3 +508,5 @@ def upload_questions_excel(file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Excel parse failed: {e}")
+
+

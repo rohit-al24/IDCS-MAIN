@@ -4,3 +4,6 @@ python-docx==0.8.11
 openpyxl==3.1.2
 python-multipart==0.0.9
 html2docx==1.6.0
+requests==2.32.3
+Pillow==10.4.0
+pytesseract==0.3.10
