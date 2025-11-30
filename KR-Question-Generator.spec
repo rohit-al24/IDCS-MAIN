@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['server\\app_packaged.py'],
+    ['server\\app_local.py'],
     pathex=[],
     binaries=[],
-    datas=[('dist', 'dist')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

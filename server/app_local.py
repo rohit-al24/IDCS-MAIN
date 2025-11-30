@@ -11,9 +11,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 # Use a writable DB path: next to EXE if frozen, else next to this file
 def get_db_path():
     if getattr(sys, 'frozen', False):
-        # Running as PyInstaller EXE
-        exe_dir = os.path.dirname(sys.executable)
-        return os.path.join(exe_dir, 'local_store.db')
+        # Use LOCALAPPDATA for writable DB location
+        local_appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        db_dir = os.path.join(local_appdata, 'IDCS-QP-Generator')
+        os.makedirs(db_dir, exist_ok=True)
+        return os.path.join(db_dir, 'local_store.db')
     else:
         return os.path.join(os.path.dirname(__file__), 'local_store.db')
 
