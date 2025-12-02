@@ -174,27 +174,7 @@ async def generate_docx(
     from io import BytesIO
     import base64, requests
 
-    # Place a full-width image banner at the top if provided
-    logo_url = title_image_url if title_image_url else None
-    if logo_url and isinstance(logo_url, str) and logo_url.strip():
-        try:
-            banner_tbl = doc.add_table(rows=1, cols=1)
-            banner_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-            banner_tbl.autofit = True
-            banner_cell = banner_tbl.rows[0].cells[0]
-            if logo_url.startswith('data:image/'):
-                header, b64data = logo_url.split(',', 1)
-                img_bytes = base64.b64decode(b64data)
-                stream = BytesIO(img_bytes)
-                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
-            elif logo_url.startswith('http://') or logo_url.startswith('https://'):
-                resp = requests.get(logo_url, timeout=5)
-                if resp.ok:
-                    stream = BytesIO(resp.content)
-                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
-            banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        except Exception:
-            logger.exception("Failed to insert banner image; continuing without it")
+    # (Banner will be inserted above the semester line below)
     from docx.shared import Pt, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -228,7 +208,7 @@ async def generate_docx(
 
     doc = Document()
 
-    # Place a full-width image banner at the top if provided
+    # Insert banner image above semester line if provided
     logo_url = title_image_url if title_image_url else None
     if logo_url and isinstance(logo_url, str) and logo_url.strip():
         try:
@@ -240,12 +220,12 @@ async def generate_docx(
                 header, b64data = logo_url.split(',', 1)
                 img_bytes = base64.b64decode(b64data)
                 stream = BytesIO(img_bytes)
-                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
             elif logo_url.startswith('http://') or logo_url.startswith('https://'):
                 resp = requests.get(logo_url, timeout=5)
                 if resp.ok:
                     stream = BytesIO(resp.content)
-                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
             banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         except Exception:
             logger.exception("Failed to insert banner image; continuing without it")
@@ -271,40 +251,7 @@ async def generate_docx(
 
 
 
-    # Title and banner side by side at the top
-    title_text = (exam_title).strip()
-    logo_url = title_image_url if title_image_url else None
-    tbl = doc.add_table(rows=1, cols=2)
-    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-    tbl.autofit = True
-    # Title cell (left, centered)
-    c_title = tbl.rows[0].cells[0]
-    p_title = c_title.paragraphs[0]
-    run_title = p_title.add_run(title_text)
-    run_title.bold = True
-    run_title.font.size = Pt(20)
-    run_title.font.name = "Times New Roman"
-    run_title.underline = True
-    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    # Banner cell (right, right-aligned)
-    c_banner = tbl.rows[0].cells[1]
-    if logo_url and isinstance(logo_url, str) and logo_url.strip():
-        try:
-            if logo_url.startswith('data:image/'):
-                header, b64data = logo_url.split(',', 1)
-                img_bytes = base64.b64decode(b64data)
-                stream = BytesIO(img_bytes)
-                c_banner.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
-            elif logo_url.startswith('http://') or logo_url.startswith('https://'):
-                resp = requests.get(logo_url, timeout=5)
-                if resp.ok:
-                    stream = BytesIO(resp.content)
-                    c_banner.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
-            c_banner.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        except Exception:
-            logger.exception("Failed to insert banner image; continuing without it")
-    else:
-        c_banner.text = ""
+ 
     add_line(sem_word, True, 11, italic=True)
     add_line(dept_from_excel, True, 11, italic=True)
     add_bold_line(cc_from_excel, True, 12)
