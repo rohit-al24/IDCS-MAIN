@@ -444,6 +444,25 @@ const Templates = () => {
                               </select>
                             </div>
                             <div>
+                              <Label className="text-xs">Chapter</Label>
+                              <select
+                                className="w-full text-sm border rounded h-8 px-2 bg-background"
+                                value={q.chapter ?? "random"}
+                                onChange={e => {
+                                  const updatedSections = [...editTemplate.sections];
+                                  updatedSections[sIdx].questions[qIdx].chapter = e.target.value;
+                                  setEditTemplate({ ...editTemplate, sections: updatedSections });
+                                }}
+                              >
+                                <option value="random">Random</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                              </select>
+                            </div>
+                            <div>
                               <Label className="text-xs">BTL</Label>
                               <select
                                 className="w-full text-sm border rounded h-8 px-2 bg-background"
@@ -849,6 +868,41 @@ const Templates = () => {
                               <option value="CO3">CO3</option>
                               <option value="CO4">CO4</option>
                               <option value="CO5">CO5</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Chapter</Label>
+                            <select
+                              className="w-full text-sm border rounded h-8 px-2 bg-background"
+                              value={q.chapter ?? "random"}
+                              onChange={e => {
+                                const updatedSections = [...newTemplate.sections];
+                                updatedSections[sIdx].questions[qIdx].chapter = e.target.value;
+                                setNewTemplate({ ...newTemplate, sections: updatedSections });
+                              }}
+                            >
+                              <option value="random">Random</option>
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                              <option value="4">4</option>
+                              <option value="5">5</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Chapter</Label>
+                            <select
+                              className="w-full text-sm border rounded h-8 px-2 bg-background"
+                              value={q.chapter ?? "random"}
+                              onChange={e => {
+                                const updatedSections = [...newTemplate.sections];
+                                updatedSections[sIdx].questions[qIdx].chapter = e.target.value;
+                                setNewTemplate({ ...newTemplate, sections: updatedSections });
+                              }}
+                            >
+                              <option value="random">Random</option>
+                              <option value="1">1</option>
+                              <option value="2">2</option>
                             </select>
                           </div>
                           <div>

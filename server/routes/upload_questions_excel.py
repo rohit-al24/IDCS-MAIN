@@ -40,6 +40,29 @@ def upload_questions_excel(file: UploadFile = File(...)):
         def norm(s):
             return re.sub(r"\s+", "", s or "").replace("\n", "").replace("\r", "").lower()
 
+        def cell_to_text(val):
+            """Normalize Excel cell value to a string.
+            Convert floats that are whole numbers to integers so '1.0' -> '1'.
+            Return empty string for None or blank-like values.
+            """
+            if val is None:
+                return ''
+            # handle floats that are integers
+            try:
+                if isinstance(val, float):
+                    if val.is_integer():
+                        return str(int(val))
+                    return str(val).strip()
+                if isinstance(val, int):
+                    return str(val)
+            except Exception:
+                pass
+            # fallback
+            try:
+                return str(val).strip()
+            except Exception:
+                return ''
+
         all_questions = []
 
         for sheet_name in sheets_to_process:
@@ -157,7 +180,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                                                 if q_col_idx is not None:
                                                     for rr in range(header_row_idx + 1, ws.max_row + 1):
                                                         v = ws.cell(row=rr, column=q_col_idx).value
-                                                        if v is not None and str(v).strip() != '':
+                                                        if v is not None and cell_to_text(v) != '':
                                                             candidate_rows.append(rr)
                                                 if candidate_rows:
                                                     target_row = min(candidate_rows, key=lambda x: abs(x - a_row))
@@ -166,7 +189,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                                                     hi = min(ws.max_row, a_row + 50)
                                                     for rr in range(lo, hi + 1):
                                                         v = ws.cell(row=rr, column=header_map.get('Question Bank')).value if header_map.get('Question Bank') is not None else None
-                                                        if v is not None and str(v).strip() != '':
+                                                        if v is not None and cell_to_text(v) != '':
                                                             target_row = rr
                                                             break
                                             except Exception:
@@ -191,14 +214,14 @@ def upload_questions_excel(file: UploadFile = File(...)):
                 target_row = a_row
                 if q_col_idx is not None:
                     try:
-                        candidate_rows = [rr for rr in range(header_row_idx + 1, ws.max_row + 1) if ws.cell(row=rr, column=q_col_idx).value is not None and str(ws.cell(row=rr, column=q_col_idx).value).strip() != '']
+                        candidate_rows = [rr for rr in range(header_row_idx + 1, ws.max_row + 1) if cell_to_text(ws.cell(row=rr, column=q_col_idx).value) != '']
                         if candidate_rows:
                             target_row = min(candidate_rows, key=lambda x: abs(x - a_row))
                         else:
                             lo = max(header_row_idx + 1, a_row - 50)
                             hi = min(ws.max_row, a_row + 50)
                             for rr in range(lo, hi + 1):
-                                if ws.cell(row=rr, column=q_col_idx).value is not None and str(ws.cell(row=rr, column=q_col_idx).value).strip() != '':
+                                if cell_to_text(ws.cell(row=rr, column=q_col_idx).value) != '':
                                     target_row = rr
                                     break
                     except Exception:
@@ -215,15 +238,15 @@ def upload_questions_excel(file: UploadFile = File(...)):
                 q_source_col = q_col_idx
                 if q_col_idx:
                     qcell_val = ws.cell(row=r, column=q_col_idx).value
-                    qtext = str(qcell_val).strip() if qcell_val is not None else ''
+                    qtext = cell_to_text(qcell_val)
                 if not qtext and q_col_idx:
                     found = False
                     for d in range(1, 6):
                         rr = r - d
                         if rr > header_row_idx:
                             val = ws.cell(row=rr, column=q_col_idx).value
-                            if val is not None and str(val).strip() != '':
-                                qtext = str(val).strip()
+                            if val is not None and cell_to_text(val) != '':
+                                qtext = cell_to_text(val)
                                 q_source_row = rr
                                 found = True
                                 break
@@ -232,8 +255,8 @@ def upload_questions_excel(file: UploadFile = File(...)):
                             rr = r + d
                             if rr <= ws.max_row:
                                 val = ws.cell(row=rr, column=q_col_idx).value
-                                if val is not None and str(val).strip() != '':
-                                    qtext = str(val).strip()
+                                if val is not None and cell_to_text(val) != '':
+                                    qtext = cell_to_text(val)
                                     q_source_row = rr
                                     break
                 if not qtext:
@@ -258,7 +281,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                         v = ws.cell(row=r, column=c).value
                         if v is None:
                             continue
-                        s = str(v).strip()
+                        s = cell_to_text(v)
                         if s and not re.fullmatch(r"\d+", s) and len(s) > best_len:
                             best = (s, c)
                             best_len = len(s)
@@ -274,7 +297,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                                     v = ws.cell(row=rr, column=c).value
                                     if v is None:
                                         continue
-                                    s = str(v).strip()
+                                    s = cell_to_text(v)
                                     if s and not re.fullmatch(r"\d+", s) and len(s) > 3:
                                         qtext = s
                                         q_source_row = rr
@@ -286,7 +309,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                             if found:
                                 break
 
-                type_raw = str(ws.cell(row=r, column=header_map['TYPE']).value or '').strip().lower()
+                type_raw = cell_to_text(ws.cell(row=r, column=header_map['TYPE']).value or '').lower()
                 if type_raw == 'o':
                     qtype = 'objective'
                 elif type_raw == 'd':
@@ -299,7 +322,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                 btl_raw = ws.cell(row=r, column=header_map['BTL Level']).value
                 btl = 2
                 if btl_raw is not None:
-                    btl_str = str(btl_raw).strip().upper()
+                    btl_str = cell_to_text(btl_raw).upper()
                     btl_nums = re.findall(r'\d+', btl_str)
                     if btl_nums:
                         btl = int(max(btl_nums, key=int))
@@ -311,7 +334,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                     marks = 1
 
                 co_cell_value = ws.cell(row=r, column=header_map['Course Outcomes']).value
-                co_raw = str(co_cell_value or '').replace('\n',' ').replace('\r',' ').strip()
+                co_raw = cell_to_text(co_cell_value).replace('\n',' ').replace('\r',' ').strip()
                 digits_found = re.findall(r'([1-5])', co_raw)
                 ordered_unique = []
                 for d in digits_found:
@@ -327,7 +350,7 @@ def upload_questions_excel(file: UploadFile = File(...)):
                     if m_single:
                         co = f"CO{m_single.group(1)}"
 
-                chapter = str(ws.cell(row=r, column=header_map['Part']).value or '').strip() or None
+                chapter = cell_to_text(ws.cell(row=r, column=header_map['Part']).value or '').strip() or None
 
                 image_data = None
                 img = None
