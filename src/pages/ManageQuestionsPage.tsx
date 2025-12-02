@@ -64,7 +64,9 @@ function EditableQuestionRow({ question, onSave }) {
         disabled={saving || !changed}
         onClick={async () => {
           setSaving(true);
-          await onSave(edit);
+          const numsMatch = String(edit.course_outcomes || '').match(/\d+/g) || [];
+          const coNums = numsMatch.length ? Array.from(new Set(numsMatch)).join(',') : null;
+          await onSave({ ...edit, course_outcomes_numbers: coNums });
           setSaving(false);
         }}
       >{saving ? "Saving..." : "Save"}</Button>
@@ -247,6 +249,19 @@ const ManageQuestionsPage: React.FC = () => {
     fetchQuestions();
   }, [selectedBank, questionsPage]);
 
+  // Helper to render CO as comma-separated numbers
+  const formatCourseOutcomes = (q: any): string => {
+    const nums = String(q?.course_outcomes_numbers || '').trim();
+    if (nums) return nums;
+    const cell = String(q?.course_outcomes_cell || '').trim();
+    const m1 = cell.match(/[1-5]/g);
+    if (m1 && m1.length) return Array.from(new Set(m1)).join(',');
+    const co = String(q?.course_outcomes || '').trim();
+    const m2 = co.match(/[1-5]/g);
+    if (m2 && m2.length) return Array.from(new Set(m2)).join(',');
+    return co || '-';
+  };
+
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-4 text-primary">Manage Questions</h1>
@@ -311,6 +326,8 @@ const ManageQuestionsPage: React.FC = () => {
                                 // Update in DB
                                 const { data: { user } } = await supabase.auth.getUser();
                                 if (!user) return;
+                                const numsMatch = String(updated.course_outcomes || '').match(/\d+/g) || [];
+                                const coNums = numsMatch.length ? Array.from(new Set(numsMatch)).join(',') : null;
                                 await supabase
                                   .from("question_bank")
                                   .update({
@@ -318,11 +335,12 @@ const ManageQuestionsPage: React.FC = () => {
                                     course_outcomes: updated.course_outcomes,
                                     btl: updated.btl,
                                     marks: updated.marks,
+                                    course_outcomes_numbers: coNums,
                                   })
                                   .eq("id", q.id)
                                   .eq("user_id", user.id);
                                 // Update in local state
-                                setQuestions((prev) => prev.map((qq, i) => i === idx ? { ...qq, ...updated } : qq));
+                                setQuestions((prev) => prev.map((qq, i) => i === idx ? { ...qq, ...updated, course_outcomes_numbers: coNums } : qq));
                               }}
                             />
                           ))}
@@ -406,7 +424,7 @@ const ManageQuestionsPage: React.FC = () => {
                       <td className="p-2">{q.marks}</td>
                       <td className="p-2">{q.btl}</td>
                       <td className="p-2">{q.type}</td>
-                      <td className="p-2">{q.course_outcomes}</td>
+                      <td className="p-2">{formatCourseOutcomes(q)}</td>
                       <td className="p-2">
                         <Button size="sm" variant="outline" onClick={() => setEditingQ(q)}>Edit</Button>
                       </td>
@@ -437,6 +455,8 @@ const ManageQuestionsPage: React.FC = () => {
                   onSave={async (updated) => {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) return;
+                    const numsMatch = String(updated.course_outcomes || '').match(/\d+/g) || [];
+                    const coNums = numsMatch.length ? Array.from(new Set(numsMatch)).join(',') : null;
                     await supabase
                       .from("question_bank")
                       .update({
@@ -444,10 +464,11 @@ const ManageQuestionsPage: React.FC = () => {
                         course_outcomes: updated.course_outcomes,
                         btl: updated.btl,
                         marks: updated.marks,
+                        course_outcomes_numbers: coNums,
                       })
                       .eq("id", editingQ.id)
                       .eq("user_id", user.id);
-                    setQuestions((prev) => prev.map((qq) => qq.id === editingQ.id ? { ...qq, ...updated } : qq));
+                    setQuestions((prev) => prev.map((qq) => qq.id === editingQ.id ? { ...qq, ...updated, course_outcomes_numbers: coNums } : qq));
                     setEditingQ(null);
                   }}
                 />

@@ -363,22 +363,26 @@ def upload_questions_excel(file: UploadFile = File(...)):
             except Exception:
                 marks = 1
 
-            co_raw = str(ws.cell(row=r, column=header_map['Course Outcomes']).value or '').replace('\n',' ').replace('\r',' ').strip()
+            # --- Course Outcomes Parsing ---
+            co_cell_value = ws.cell(row=r, column=header_map['Course Outcomes']).value
+            co_raw = str(co_cell_value or '').replace('\n',' ').replace('\r',' ').strip()
+            # Extract all distinct digits 1-5 preserving order of first appearance
+            digits_found = re.findall(r'([1-5])', co_raw)
+            ordered_unique = []
+            for d in digits_found:
+                if d not in ordered_unique:
+                    ordered_unique.append(d)
+            co_multi_numbers = ','.join(ordered_unique) if ordered_unique else ''
+            # Single CO (first) for legacy logic
             co = None
-            if co_raw:
-                try:
-                    num = float(co_raw)
-                    if int(num) in range(1,6):
-                        co = f"CO{int(num)}"
-                except Exception:
-                    pass
-                if co is None:
-                    s = re.sub(r"\s+", " ", co_raw).upper()
-                    digit_match = re.search(r"\b([1-5])\b", s)
-                    if s.startswith('CO') and digit_match:
-                        co = f"CO{digit_match.group(1)}"
-                    elif digit_match:
-                        co = f"CO{digit_match.group(1)}"
+            if ordered_unique:
+                co = f"CO{ordered_unique[0]}"
+            # If explicit COx string present without digits list, fallback to prior logic
+            if co is None and co_raw:
+                s_up = co_raw.upper()
+                m_single = re.search(r'CO\s*([1-5])', s_up)
+                if m_single:
+                    co = f"CO{m_single.group(1)}"
 
             chapter = str(ws.cell(row=r, column=header_map['Part']).value or '').strip() or None
 
@@ -478,7 +482,9 @@ def upload_questions_excel(file: UploadFile = File(...)):
                 'type': qtype,
                 'btl': btl,
                 'marks': marks,
-                'course_outcomes': co,
+                'course_outcomes': co,  # legacy single outcome (first)
+                'course_outcomes_cell': co_raw,  # original cell content
+                'course_outcomes_numbers': co_multi_numbers,  # comma-separated numeric list
                 'chapter': chapter,
                 'image': image_data,
                 'question_source_row': q_source_row,

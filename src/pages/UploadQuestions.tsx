@@ -85,7 +85,7 @@ const UploadQuestions = () => {
       if (result.questions && Array.isArray(result.questions)) {
         // Normalize CO preview to reflect Excel content as numbers (e.g., 1,2,3,4,5)
         const normalized = result.questions.map((q: any) => {
-          const coRaw = q.course_outcomes ?? q.CO ?? q.co ?? q.CourseOutcomes ?? q.courseOutcome ?? "";
+          const coRaw = q.course_outcomes_numbers || q.course_outcomes_cell || q.course_outcomes || q.CO || q.co || q.CourseOutcomes || q.courseOutcome || "";
           let preview: string | null = null;
           if (Array.isArray(coRaw)) {
             preview = coRaw.map((x: any) => String(x)).join(",");
@@ -204,6 +204,15 @@ const UploadQuestions = () => {
           const key = `${(title || 'uploads').replace(/[^a-z0-9-_]/gi, '_')}/${Date.now()}_${i}.png`;
           image_url = await uploadImage(q.image, key);
         }
+        // derive comma-separated CO numbers for DB
+        const coNums = (q as any).course_outcomes_preview && String((q as any).course_outcomes_preview).trim()
+          ? String((q as any).course_outcomes_preview).trim()
+          : (() => {
+              const src = q.course_outcomes || '';
+              const m = src.match(/\d+/g) || [];
+              return m.length ? m.join(',') : null;
+            })();
+
         questionsToInsert.push({
           user_id: user.id,
           question_text: q.question_text,
@@ -216,6 +225,7 @@ const UploadQuestions = () => {
           status: status as 'verified' | 'pending' | 'rejected',
           chapter: q.chapter || null,
           course_outcomes: q.course_outcomes || null,
+          course_outcomes_numbers: coNums,
           title: title || null,
           image_url,
         });
@@ -312,6 +322,13 @@ const UploadQuestions = () => {
           const key = `${(title || 'uploads').replace(/[^a-z0-9-_]/gi, '_')}/${Date.now()}_${i}.png`;
           image_url = await uploadImage(q.image, key);
         }
+        const coNums = (q as any).course_outcomes_preview && String((q as any).course_outcomes_preview).trim()
+          ? String((q as any).course_outcomes_preview).trim()
+          : (() => {
+              const src = q.course_outcomes || '';
+              const m = src.match(/\d+/g) || [];
+              return m.length ? m.join(',') : null;
+            })();
         questionsToInsert.push({
           user_id: user.id,
           question_text: q.question_text,
@@ -324,6 +341,7 @@ const UploadQuestions = () => {
           status: 'pending' as 'pending',
           chapter: q.chapter || null,
           course_outcomes: q.course_outcomes || null,
+          course_outcomes_numbers: coNums,
           title: title || null,
           image_url,
         });

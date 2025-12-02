@@ -37,6 +37,38 @@ const VerifyQuestions = () => {
   const [totalVerified, setTotalVerified] = useState(0);
   const [totalUnverified, setTotalUnverified] = useState(0);
 
+  // Helpers for display: CO numbers and unified Type label
+  const extractNumbers = (s?: string | null): string | null => {
+    if (!s || typeof s !== "string") return null;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const matches = s.match(/[1-5]/g);
+    if (matches) {
+      for (const d of matches) {
+        if (!seen.has(d)) { seen.add(d); out.push(d); }
+      }
+    }
+    return out.length ? out.join(",") : null;
+  };
+
+  const formatCourseOutcomes = (q: Question): string => {
+    const anyQ = q as any;
+    const nums: string | undefined = anyQ?.course_outcomes_numbers;
+    if (typeof nums === "string" && nums.trim()) return nums;
+    const fromCell = extractNumbers(anyQ?.course_outcomes_cell);
+    if (fromCell) return fromCell;
+    const fromCo = extractNumbers((anyQ?.course_outcomes as string) || "");
+    if (fromCo) return fromCo;
+    return "-";
+  };
+
+  const displayType = (q: Question): string => {
+    const anyQ = q as any;
+    if (anyQ?.excel_type === 'C') return 'Part C';
+    if (q.type === 'descriptive' && /\bpart\s*c\b|\(c\)|\[c\]/i.test(q.question_text)) return 'Part C';
+    return q.type as string;
+  };
+
   useEffect(() => {
     fetchQuestions();
     // eslint-disable-next-line
@@ -335,14 +367,10 @@ const VerifyQuestions = () => {
                                   ) : null}
                                 </div>
                               </TableCell>
-                              <TableCell className="capitalize">{
-                                ((q as any)?.excel_type === 'C' || (q.type === 'descriptive' && /\bpart\s*c\b|\(c\)|\[c\]/i.test(q.question_text)))
-                                  ? 'Part C'
-                                  : q.type
-                              }</TableCell>
+                              <TableCell className="capitalize">{displayType(q)}</TableCell>
                               <TableCell>{q['btl'] ?? '-'}</TableCell>
                               <TableCell>{q.marks ?? '-'}</TableCell>
-                              <TableCell>{q['course_outcomes'] ?? '-'}</TableCell>
+                              <TableCell>{formatCourseOutcomes(q)}</TableCell>
                               <TableCell>
                                 <Button
                                   variant="ghost"
@@ -350,7 +378,7 @@ const VerifyQuestions = () => {
                                   onClick={() => { setSelectedQuestion(q); setEditedQuestion(q); setIsEditDialogOpen(true); }}
                                 >
                                   <Edit className="w-4 h-4" />
-                                  Mark Unverified
+                                  Verify
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -469,10 +497,10 @@ const VerifyQuestions = () => {
                                   ) : null}
                                 </div>
                               </TableCell>
-                              <TableCell className="capitalize">{q.type}</TableCell>
+                              <TableCell className="capitalize">{displayType(q)}</TableCell>
                               <TableCell>{q['btl'] ?? '-'}</TableCell>
                               <TableCell>{q.marks ?? '-'}</TableCell>
-                              <TableCell>{q['course_outcomes'] ?? '-'}</TableCell>
+                              <TableCell>{formatCourseOutcomes(q)}</TableCell>
                               <TableCell>
                                 <Button
                                   variant="ghost"

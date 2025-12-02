@@ -92,6 +92,18 @@ type Template = Tables<"templates">;
 type Question = Tables<"question_bank">;
 
 const GeneratePaper = () => {
+    // Helper: prefer Excel-style CO numbers text
+    const getCoText = (q: any): string => {
+      const nums = String((q?.course_outcomes_numbers ?? '')).trim();
+      if (nums) return nums;
+      const cell = String((q?.course_outcomes_cell ?? '')).trim();
+      const m1 = cell.match(/[1-5]/g);
+      if (m1 && m1.length) return Array.from(new Set(m1)).join(',');
+      const co = String((q?.course_outcomes ?? '')).trim();
+      const m2 = co.match(/[1-5]/g);
+      if (m2 && m2.length) return Array.from(new Set(m2)).join(',');
+      return co || '-';
+    };
     // --- Manual Pick State & Functions ---
     const [manualPick, setManualPick] = useState<{ open: boolean; copy: 1|2; qIdx: number|null }>({ open: false, copy: 1, qIdx: null });
     const [manualPickList, setManualPickList] = useState<any[]>([]);
@@ -129,7 +141,7 @@ const GeneratePaper = () => {
                 part: (q as any).part,
                 marks: q.marks,
                 or: (q as any).or,
-                co: picked.course_outcomes || picked.co
+                co: getCoText(picked)
               } as Question & { baseNumber?: number; sub?: string; part?: string; or?: boolean; co?: string }
             : q
         ));
@@ -143,7 +155,7 @@ const GeneratePaper = () => {
                 part: (q as any).part,
                 marks: q.marks,
                 or: (q as any).or,
-                co: picked.course_outcomes || picked.co
+                co: getCoText(picked)
               } as Question & { baseNumber?: number; sub?: string; part?: string; or?: boolean; co?: string }
             : q
         ));
@@ -1037,7 +1049,7 @@ const GeneratePaper = () => {
                           <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups1.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
-                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl ? ` • BTL ${q.btl}` : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                                 {/* Show Type for 16th question (Part C) */}
                                 {q.baseNumber === 16 && q.type && (
                                   <span className="text-xs text-blue-700 font-bold">Type: {q.type === 'Part_C' ? 'Part C' : q.type}</span>
@@ -1111,7 +1123,7 @@ const GeneratePaper = () => {
                           <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups2.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
-                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl ? ` • BTL ${q.btl}` : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                               </span>
                               <div className="flex gap-2 mt-2">
                                 <Button size="sm" variant="outline" onClick={()=>openManualPick(2, idx)}>Pick Manually</Button>
@@ -1148,6 +1160,7 @@ const GeneratePaper = () => {
                                                     <th className="p-2 border">CO</th>
                                                     <th className="p-2 border">Type</th>
                                                     <th className="p-2 border">BTL</th>
+                                                    <th className="p-2 border">Chapter</th>
                                                     <th className="p-2 border">Marks</th>
                                                     <th className="p-2 border">Image</th>
                                                     <th className="p-2 border"></th>
@@ -1166,9 +1179,10 @@ const GeneratePaper = () => {
                                                           i+1
                                                         }</td>
                                                         <td className="p-2 border max-w-xs truncate" title={q.question_text}>{q.question_text}</td>
-                                                        <td className="p-2 border">{q.course_outcomes || q.co}</td>
+                                                        <td className="p-2 border">{getCoText(q)}</td>
                                                         <td className="p-2 border">{q.type || q.TYPE || q.type_letter || q.excel_type}</td>
                                                         <td className="p-2 border">{q.btl}</td>
+                                                        <td className="p-2 border">{q.chapter || '-'}</td>
                                                         <td className="p-2 border">{q.marks}</td>
                                                         <td className="p-2 border">
                                                           {q.image_url ? (
@@ -1179,7 +1193,7 @@ const GeneratePaper = () => {
                                                       </tr>
                                                     ))}
                                                   {manualPickList.filter(q => !manualPickType || (q.type || q.TYPE || q.type_letter || q.excel_type) === manualPickType).length === 0 && (
-                                                    <tr><td colSpan={8} className="text-center p-4">No questions found in bank</td></tr>
+                                                    <tr><td colSpan={9} className="text-center p-4">No questions found in bank</td></tr>
                                                   )}
                                                 </tbody>
                                               </table>
