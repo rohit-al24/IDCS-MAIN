@@ -22,10 +22,6 @@ const VerifyQuestions = () => {
   const { toast } = useToast();
   const [unverifiedQuestions, setUnverifiedQuestions] = useState<Question[]>([]);
   const [verifiedQuestions, setVerifiedQuestions] = useState<Question[]>([]);
-  // Pagination state
-  const [verifiedPage, setVerifiedPage] = useState(1);
-  const [unverifiedPage, setUnverifiedPage] = useState(1);
-  const PAGE_SIZE = 50;
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editedQuestion, setEditedQuestion] = useState<Partial<Question>>({});
@@ -72,7 +68,7 @@ const VerifyQuestions = () => {
   useEffect(() => {
     fetchQuestions();
     // eslint-disable-next-line
-  }, [verifiedPage, unverifiedPage]);
+  }, []);
 
   // Build image object URLs for questions' image_url values.
   useEffect(() => {
@@ -168,7 +164,7 @@ const VerifyQuestions = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch total counts for pagination
+      // Fetch all counts
       const [{ count: verifiedCount }, { count: unverifiedCount }] = await Promise.all([
         supabase
           .from("question_bank")
@@ -184,20 +180,18 @@ const VerifyQuestions = () => {
       setTotalVerified(verifiedCount || 0);
       setTotalUnverified(unverifiedCount || 0);
 
-      // Fetch only the current page for each
+      // Fetch all for each status (no pagination)
       const [{ data: unverified }, { data: verified }] = await Promise.all([
         supabase
           .from("question_bank")
           .select("*")
           .eq("user_id", user.id)
-          .eq("status", "verified")
-          .range((unverifiedPage - 1) * PAGE_SIZE, unverifiedPage * PAGE_SIZE - 1),
+          .eq("status", "verified"),
         supabase
           .from("question_bank")
           .select("*")
           .eq("user_id", user.id)
-          .eq("status", "pending")
-          .range((verifiedPage - 1) * PAGE_SIZE, verifiedPage * PAGE_SIZE - 1),
+          .eq("status", "pending"),
       ]);
       setUnverifiedQuestions(unverified || []);
       setVerifiedQuestions(verified || []);
@@ -254,10 +248,8 @@ const VerifyQuestions = () => {
     }
   };
 
-  // Pagination helpers
+  // Pagination helpers removed; show all
   const getPage = (arr: Question[]) => arr;
-  const totalVerifiedPages = Math.ceil(totalVerified / PAGE_SIZE) || 1;
-  const totalUnverifiedPages = Math.ceil(totalUnverified / PAGE_SIZE) || 1;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
@@ -358,7 +350,7 @@ const VerifyQuestions = () => {
                                   }}
                                 />
                               </TableCell>
-                              <TableCell>{(verifiedPage - 1) * PAGE_SIZE + idx + 1}</TableCell>
+                              <TableCell>{idx + 1}</TableCell>
                               <TableCell className="max-w-md">
                                 <div className="flex flex-col gap-2">
                                   <div className="truncate">{q.question_text}</div>
@@ -386,12 +378,7 @@ const VerifyQuestions = () => {
                         </TableBody>
                       </Table>
                     </div>
-                    {/* Pagination controls */}
-                    <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button variant="outline" size="sm" onClick={() => setVerifiedPage(p => Math.max(1, p - 1))} disabled={verifiedPage === 1}>Prev</Button>
-                      <span>Page {verifiedPage} of {totalVerifiedPages}</span>
-                      <Button variant="outline" size="sm" onClick={() => setVerifiedPage(p => Math.min(totalVerifiedPages, p + 1))} disabled={verifiedPage === totalVerifiedPages}>Next</Button>
-                    </div>
+                    {/* Pagination controls removed */}
                   </>
                 )}
               </CardContent>
@@ -475,7 +462,7 @@ const VerifyQuestions = () => {
                                   }}
                                 />
                               </TableCell>
-                              <TableCell>{(unverifiedPage - 1) * PAGE_SIZE + idx + 1}</TableCell>
+                              <TableCell>{idx + 1}</TableCell>
                               <TableCell>
                                 {(imageSrcs[q.id] || q.image_url) ? (
                                   (imageSrcs[q.id] || q.image_url).startsWith("data:") ? (
@@ -516,12 +503,7 @@ const VerifyQuestions = () => {
                         </TableBody>
                       </Table>
                     </div>
-                    {/* Pagination controls */}
-                    <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button variant="outline" size="sm" onClick={() => setUnverifiedPage(p => Math.max(1, p - 1))} disabled={unverifiedPage === 1}>Prev</Button>
-                      <span>Page {unverifiedPage} of {totalUnverifiedPages}</span>
-                      <Button variant="outline" size="sm" onClick={() => setUnverifiedPage(p => Math.min(totalUnverifiedPages, p + 1))} disabled={unverifiedPage === totalUnverifiedPages}>Next</Button>
-                    </div>
+                    {/* Pagination controls removed */}
                   </>
                 )}
               </CardContent>

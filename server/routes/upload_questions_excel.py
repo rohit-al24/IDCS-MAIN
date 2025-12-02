@@ -12,9 +12,19 @@ router = APIRouter()
 
 @router.post("/upload-questions-excel/")
 def upload_questions_excel(file: UploadFile = File(...)):
+
     try:
         data = file.file.read()
         wb = load_workbook(BytesIO(data), data_only=True)
+
+        # --- Extract meta from INDEX sheet ---
+        meta = {}
+        if 'INDEX' in wb.sheetnames:
+            ws_index = wb['INDEX']
+            # Excel is 1-indexed, so row 7, col 3 is ws_index.cell(row=7, column=3)
+            meta['semester'] = str(ws_index.cell(row=7, column=3).value or '').strip()
+            meta['course_code'] = str(ws_index.cell(row=8, column=3).value or '').strip()
+            meta['course_name'] = str(ws_index.cell(row=9, column=3).value or '').strip()
 
         # preferred sheets order; process CO1-CO2 then CO3-CO4 then CO5 if present
         preferred_sheets = ['CO1-CO2', 'CO3-CO4', 'CO5']
@@ -446,9 +456,10 @@ def upload_questions_excel(file: UploadFile = File(...)):
         if not all_questions:
             return {
                 'questions': [],
-                'warning': 'No questions parsed from specified CO sheets.'
+                'warning': 'No questions parsed from specified CO sheets.',
+                'meta': meta
             }
-        return {'questions': all_questions}
+        return {'questions': all_questions, 'meta': meta}
     except HTTPException:
         raise
     except Exception as e:

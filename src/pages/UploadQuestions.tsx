@@ -60,6 +60,8 @@ const UploadQuestions = () => {
   });
   const [isTitleDialogOpen, setIsTitleDialogOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [meta, setMeta] = useState<{ semester?: string; course_code?: string; course_name?: string }>({});
+  const [editingMeta, setEditingMeta] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileNameRef = useRef<string>("");
 
@@ -70,6 +72,7 @@ const UploadQuestions = () => {
     setTitle(fileNameRef.current);
 
     // Upload file to backend for parsing (to get images too)
+    // NOTE: Meta fields are extracted from INDEX sheet cells (7,3), (8,3), (9,3)
     const formData = new FormData();
     formData.append("file", file);
     try {
@@ -83,6 +86,7 @@ const UploadQuestions = () => {
       }
       const result = await res.json();
       if (result.questions && Array.isArray(result.questions)) {
+        if (result.meta) setMeta(result.meta);
         // Normalize CO preview to reflect Excel content as numbers (e.g., 1,2,3,4,5)
         const normalized = result.questions.map((q: any) => {
           const coRaw = q.course_outcomes_numbers || q.course_outcomes_cell || q.course_outcomes || q.CO || q.co || q.CourseOutcomes || q.courseOutcome || "";
@@ -118,6 +122,32 @@ const UploadQuestions = () => {
 
   const saveQuestions = async () => {
     setIsTitleDialogOpen(true);
+  };
+
+  // Save meta to question_bank_titles
+  const saveMeta = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return toast({ title: "Error", description: "Please login first", variant: "destructive" });
+      // Try upsert into question_bank_titles
+      const { error: upsertErr } = await (supabase as any).from("question_bank_titles").upsert({
+        title,
+        semester: meta.semester || null,
+        course_code: meta.course_code || null,
+        course_name: meta.course_name || null,
+      }, { onConflict: 'title' });
+      if (upsertErr) {
+        // Fallback: update all question_bank rows with this title (only update fields that exist)
+        const { error: qbErr } = await supabase.from("question_bank").update({
+          // No semester, course_code, course_name columns in question_bank
+        }).eq("title", title);
+        if (qbErr) throw qbErr;
+      }
+      toast({ title: "Meta Saved", description: "Course info updated." });
+      setEditingMeta(false);
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to save meta", variant: "destructive" });
+    }
   };
 
   const saveSelectedQuestions = async (status: 'verified' | 'pending') => {
@@ -216,10 +246,10 @@ const UploadQuestions = () => {
         questionsToInsert.push({
           user_id: user.id,
           question_text: q.question_text,
+          answer_text: q.correct_answer || '',
           type: q.type,
           options: q.options || null,
           correct_answer: q.correct_answer || null,
-          answer_text: q.correct_answer || '',
           btl: q.btl,
           marks: q.marks,
           status: status as 'verified' | 'pending' | 'rejected',
@@ -228,6 +258,10 @@ const UploadQuestions = () => {
           course_outcomes_numbers: coNums,
           title: title || null,
           image_url,
+          course_code: meta.course_code || null,
+          course_name: meta.course_name || null,
+          semester: meta.semester || null,
+          // Add other fields as needed (subject, difficulty, verified, created_at, updated_at, source_file_path, title_id, excel_type)
         });
       }
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
@@ -332,10 +366,10 @@ const UploadQuestions = () => {
         questionsToInsert.push({
           user_id: user.id,
           question_text: q.question_text,
+          answer_text: q.correct_answer || '',
           type: q.type,
           options: q.options || null,
           correct_answer: q.correct_answer || null,
-          answer_text: q.correct_answer || '',
           btl: q.btl,
           marks: q.marks,
           status: 'pending' as 'pending',
@@ -344,6 +378,10 @@ const UploadQuestions = () => {
           course_outcomes_numbers: coNums,
           title: title || null,
           image_url,
+          course_code: meta.course_code || null,
+          course_name: meta.course_name || null,
+          semester: meta.semester || null,
+          // Add other fields as needed (subject, difficulty, verified, created_at, updated_at, source_file_path, title_id, excel_type)
         });
       }
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
@@ -451,6 +489,40 @@ const UploadQuestions = () => {
       </nav>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Editable meta below title */}
+        {title && (
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>Course Info</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {editingMeta ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Semester</Label>
+                    <Input value={meta.semester || ""} onChange={e => setMeta(m => ({ ...m, semester: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Course Code</Label>
+                    <Input value={meta.course_code || ""} onChange={e => setMeta(m => ({ ...m, course_code: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Course Name</Label>
+                    <Input value={meta.course_name || ""} onChange={e => setMeta(m => ({ ...m, course_name: e.target.value }))} />
+                  </div>
+                  <Button className="mt-2" onClick={saveMeta}>Save Info</Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div><strong>Semester:</strong> {meta.semester || <span className="text-muted-foreground">(none)</span>}</div>
+                  <div><strong>Course Code:</strong> {meta.course_code || <span className="text-muted-foreground">(none)</span>}</div>
+                  <div><strong>Course Name:</strong> {meta.course_name || <span className="text-muted-foreground">(none)</span>}</div>
+                  <Button className="mt-2" variant="outline" onClick={() => setEditingMeta(true)}>Edit</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
         <div className="grid gap-6 mb-8">
           <Card>
             <CardHeader>

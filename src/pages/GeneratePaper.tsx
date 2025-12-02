@@ -242,6 +242,56 @@ const GeneratePaper = () => {
     fetchQuestionBanks();
   }, []);
 
+  // Fetch course metadata (course_code, course_name, semester) for selected question bank
+  useEffect(() => {
+    const fetchBankMeta = async () => {
+      try {
+        if (!selectedQuestionBank) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        // Prefer question_bank_titles table if available
+        const { data: titlesData, error: titlesErr } = await (supabase as any)
+          .from("question_bank_titles")
+          .select("course_code, course_name, semester")
+          .eq("title", selectedQuestionBank)
+          .limit(1);
+        let course_code = "";
+        let course_name = "";
+        let semester = "";
+        if (!titlesErr && Array.isArray(titlesData) && titlesData.length > 0) {
+          const row = titlesData[0] || {};
+          course_code = String(row.course_code || "");
+          course_name = String(row.course_name || "");
+          semester = String(row.semester || "");
+        } else {
+          // Fallback: derive from any question in this bank if fields exist later
+          const { data: anyQ } = await supabase
+            .from("question_bank")
+            .select("course_code, course_name, semester")
+            .eq("user_id", user.id)
+            .eq("status", "verified")
+            .eq("title", selectedQuestionBank)
+            .limit(1);
+          const row = (Array.isArray(anyQ) && anyQ[0]) || {};
+          course_code = String((row as any)?.course_code || "");
+          course_name = String((row as any)?.course_name || "");
+          semester = String((row as any)?.semester || "");
+        }
+        if (course_code || course_name || semester) {
+          setDocMeta(prev => ({
+            ...prev,
+            cc: course_code || prev.cc,
+            cn: course_name || prev.cn,
+            semester: semester || prev.semester,
+          }));
+        }
+      } catch (e) {
+        // Silent fallback
+      }
+    };
+    fetchBankMeta();
+  }, [selectedQuestionBank]);
+
   const fetchTemplates = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
