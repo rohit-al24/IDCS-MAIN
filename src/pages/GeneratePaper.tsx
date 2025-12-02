@@ -194,7 +194,7 @@ const GeneratePaper = () => {
     cn: "",
     qpcode: "QP123",
     exam_title: "",
-    regulation: "Regulation 2024",
+    regulation: "Regulation 2023",
     semester: "Second Semester",
   });
   const departmentOptions = [
@@ -1193,7 +1193,7 @@ const GeneratePaper = () => {
                     </div>
                     <div>
                       <Label>Regulation</Label>
-                      <Input value={docMeta.regulation} onChange={e=>setDocMeta(v=>({...v, regulation: e.target.value}))} placeholder="e.g., Regulation 2024" />
+                      <Input value={docMeta.regulation} onChange={e=>setDocMeta(v=>({...v, regulation: e.target.value}))} placeholder="e.g., Regulation 2023" />
                     </div>
                     <div>
                       <Label>Semester</Label>

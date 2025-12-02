@@ -132,7 +132,6 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'btl': btl_a,
                                 'marks': marks_a,
                                 'part': part,
-                                'chapter': 1,
                                 'or': False
                             })
                         if q_b:
@@ -143,7 +142,6 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'btl': btl_b,
                                 'marks': marks_b,
                                 'part': part,
-                                'chapter': 2,
                                 'or': True
                             })
                         i += 3
@@ -176,12 +174,7 @@ async def generate_docx(
     from io import BytesIO
     import base64, requests
 
-    # (Banner will be inserted above the semester line below)
-    from docx.shared import Pt, Inches
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.table import WD_TABLE_ALIGNMENT
-    import tempfile
-    import os
+    
 
 
     # If excel_meta is provided, parse and override cc/cn/dept/semester
@@ -193,7 +186,15 @@ async def generate_docx(
         except Exception:
             meta = {}
     # Excel meta expected keys: course_code_name, department, semester (number or string)
-    cc_from_excel = meta.get('course_code_name') or cc
+    # Course code/name: prefer explicit keys, fall back to combined 'course_code_name' or UI params
+    raw_code_name = meta.get('course_code_name')
+    cc_from_excel = meta.get('course_code') or cc
+    cn_from_excel = meta.get('course_name') or cn
+    if not cn_from_excel and raw_code_name and isinstance(raw_code_name, str) and ' - ' in raw_code_name:
+        parts = raw_code_name.split(' - ', 1)
+        if not cc_from_excel:
+            cc_from_excel = parts[0].strip()
+        cn_from_excel = parts[1].strip()
     dept_from_excel = meta.get('department') or dept
     sem_from_excel = meta.get('semester') or semester
     # Convert semester number to words if needed
@@ -210,7 +211,7 @@ async def generate_docx(
 
     doc = Document()
 
-    # Insert banner image above semester line if provided
+    # Place a full-width image banner at the top if provided
     logo_url = title_image_url if title_image_url else None
     if logo_url and isinstance(logo_url, str) and logo_url.strip():
         try:
@@ -222,12 +223,12 @@ async def generate_docx(
                 header, b64data = logo_url.split(',', 1)
                 img_bytes = base64.b64decode(b64data)
                 stream = BytesIO(img_bytes)
-                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
+                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
             elif logo_url.startswith('http://') or logo_url.startswith('https://'):
                 resp = requests.get(logo_url, timeout=5)
                 if resp.ok:
                     stream = BytesIO(resp.content)
-                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
+                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
             banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         except Exception:
             logger.exception("Failed to insert banner image; continuing without it")
@@ -253,10 +254,17 @@ async def generate_docx(
 
 
 
- 
+    # (Banner already placed above; continue with course/meta lines)
     add_line(sem_word, True, 11, italic=True)
     add_line(dept_from_excel, True, 11, italic=True)
-    add_bold_line(cc_from_excel, True, 12)
+    # Display course code and name together when available
+    display_course = cc_from_excel or ""
+    if cn_from_excel:
+        if display_course:
+            display_course = f"{display_course} - {cn_from_excel}"
+        else:
+            display_course = cn_from_excel
+    add_bold_line(display_course, True, 12)
     add_line(f"({regulation})", True, 11)
 
     # Time and Maximum Marks on same line, left-aligned, with spacing
@@ -525,23 +533,27 @@ async def generate_docx(
     for i, w in enumerate(widths_b):
         for row in table_b.rows:
             row.cells[i].width = w
-    # Custom logic: 11A-15A should use chapter=="1"; 11B-15B should use chapter=="2"
-    def filter_by_chapter(questions, chapter_value):
-        return [q for q in questions if str(q.get('chapter', '')).strip() == str(chapter_value)]
-
-    # Build pairs for Part B: 11A-15A (chapter==1), 11B-15B (chapter==2)
-    part_b_questions = [q for q in _questions if isinstance(q, dict) and q.get('part', '').upper() == 'B']
-    a_questions = filter_by_chapter(part_b_questions, "1")
-    b_questions = filter_by_chapter(part_b_questions, "2")
-    # Pad to 5 each
-    while len(a_questions) < 5:
-        a_questions.append(None)
-    while len(b_questions) < 5:
-        b_questions.append(None)
+    # Render Part B with (a), OR row, (b) for each pair
+    b_pairs = []
+    temp_pair = []
+    for q in _questions:
+        if isinstance(q, dict) and q.get('part', '').upper() == 'B':
+            temp_pair.append(q)
+            if len(temp_pair) == 2:
+                b_pairs.append(temp_pair)
+                temp_pair = []
+    # Always print 5 pairs: 11, 12, 13, 14, 15, even if some pairs are missing (insert empty rows)
     for pair_idx in range(5):
         base_no = str(11 + pair_idx)
-        qa = a_questions[pair_idx]
-        qb = b_questions[pair_idx]
+        pair = b_pairs[pair_idx] if pair_idx < len(b_pairs) else None
+        if pair:
+            try:
+                pair_sorted = sorted(pair, key=lambda q: str(q.get('sub','')))
+            except Exception:
+                pair_sorted = pair
+            qa, qb = pair_sorted
+        else:
+            qa, qb = None, None
         # (a) row
         row_a = table_b.add_row().cells
         for i, w in enumerate(widths_b):
@@ -550,7 +562,9 @@ async def generate_docx(
         p_a = row_a[1].paragraphs[0]
         p_a.paragraph_format.left_indent = Inches(0.0)
         if qa:
+            # Add question text
             p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
+            # Add image if present
             img_url = qa.get('image_url')
             if img_url:
                 try:
@@ -567,7 +581,7 @@ async def generate_docx(
                         ext = '.png' if 'png' in header else '.jpg'
                         img_stream = BytesIO(img_bytes)
                         p_a.add_run().add_picture(img_stream, width=Inches(2.5))
-                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", base_no, ext)
+                        logger.info("Inserted data:image for PART-A question %s (ext=%s)", idx, ext)
                     elif img_url.startswith('http'):
                         resp = requests.get(img_url)
                         if resp.ok:
@@ -575,18 +589,20 @@ async def generate_docx(
                             ext = '.png' if 'png' in content_type else '.jpg'
                             img_stream = BytesIO(resp.content)
                             p_a.add_run().add_picture(img_stream, width=Inches(2.5))
-                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", base_no, content_type)
+                            logger.info("Fetched and inserted PART-A remote image for %s (content-type=%s)", idx, content_type)
                 except StopIteration:
                     pass
                 except Exception as e:
-                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", base_no, img_url)
+                    logger.exception("Failed to insert PART-A image for %s, img_url=%s", idx, img_url)
                     p_a.add_run(" [Image error]")
             row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
             row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
         else:
             row_a[2].text = row_a[3].text = row_a[4].text = ""
-        for p in (row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs):
+        for p in (
+            row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs
+        ):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         # OR row (spanning all columns, centered)
@@ -604,7 +620,9 @@ async def generate_docx(
         p_b = row_b[1].paragraphs[0]
         p_b.paragraph_format.left_indent = Inches(0.0)
         if qb:
+            # Add question text
             p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
+            # Add image if present
             img_url = qb.get('image_url')
             if img_url:
                 try:
@@ -621,7 +639,7 @@ async def generate_docx(
                         ext = '.png' if 'png' in header else '.jpg'
                         img_stream = BytesIO(img_bytes)
                         p_b.add_run().add_picture(img_stream, width=Inches(2.5))
-                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", base_no, ext)
+                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", idx, ext)
                     elif img_url.startswith('http'):
                         resp = requests.get(img_url)
                         if resp.ok:
@@ -629,18 +647,20 @@ async def generate_docx(
                             ext = '.png' if 'png' in content_type else '.jpg'
                             img_stream = BytesIO(resp.content)
                             p_b.add_run().add_picture(img_stream, width=Inches(2.5))
-                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", base_no, content_type)
+                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", idx, content_type)
                 except StopIteration:
                     pass
                 except Exception as e:
-                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", base_no, img_url)
+                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", idx, img_url)
                     p_b.add_run(" [Image error]")
             row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
             row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
         else:
             row_b[2].text = row_b[3].text = row_b[4].text = ""
-        for p in (row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs):
+        for p in (
+            row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs
+        ):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(" ")
     doc.add_paragraph("******************").bold = True
