@@ -392,7 +392,12 @@ const Templates = () => {
                       )}
                       {/* Only show OR checkbox for Section C/3rd section, no base question input */}
                       {section.questions.map((q: any, qIdx: number) => (
-                        <div key={qIdx} className="border rounded p-3 space-y-2">
+                        <div key={qIdx} className={`border rounded p-3 space-y-2 ${q.isAlternate ? 'bg-slate-50' : ''}`}>
+                          {q.isAlternate && (
+                            <div className="mb-2">
+                              <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-white border">B</span>
+                            </div>
+                          )}
                           <div className="grid grid-cols-7 gap-2 items-start">
                             <div>
                               <Label className="text-xs">Type</Label>
@@ -420,6 +425,32 @@ const Templates = () => {
                                   <option value="Part_C">Part C</option>
                                 </select>
                               )}
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <Label className="text-xs">Base</Label>
+                              <div className="flex items-center h-8">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4"
+                                  checked={!!q.isBase}
+                                  onChange={(e) => {
+                                    const updatedSections = [...editTemplate.sections];
+                                    const questions = updatedSections[sIdx].questions;
+                                    // toggle base
+                                    questions[qIdx].isBase = !!e.target.checked;
+                                    // if unsetting base, revert an immediate alternate if present
+                                    if (!e.target.checked) {
+                                      const next = questions[qIdx + 1];
+                                      if (next && next.isAlternate && next.parentIndex === qIdx) {
+                                        questions[qIdx + 1].isAlternate = false;
+                                        delete questions[qIdx + 1].parentIndex;
+                                      }
+                                    }
+                                    updatedSections[sIdx].questions = questions;
+                                    setEditTemplate({ ...editTemplate, sections: updatedSections });
+                                  }}
+                                />
+                              </div>
                             </div>
                             <div className="col-span-2 flex items-end">
                               <p className="text-xs text-muted-foreground">Will fetch random question</p>
@@ -513,20 +544,34 @@ const Templates = () => {
                                   type="checkbox"
                                   className="h-4 w-4"
                                   disabled={qIdx === 0}
-                                  checked={!!q.isOr}
+                                  checked={!!q.isAlternate}
                                   onChange={(e) => {
-                                    if (qIdx === 0) return; // Only disable for first question
+                                    if (qIdx === 0) return; // first cannot be OR
                                     const updatedSections = [...editTemplate.sections];
-                                    const prev = updatedSections[sIdx].questions[qIdx - 1];
+                                    const questions = updatedSections[sIdx].questions;
+                                    const prev = questions[qIdx - 1];
                                     if (e.target.checked) {
-                                      if (prev?.isOr) {
-                                        toast({ title: "Invalid", description: "Consecutive OR options not allowed", variant: "destructive" });
+                                      if (!prev?.isBase) {
+                                        toast({ title: "Invalid", description: "Mark the previous question as Base before creating an alternate", variant: "destructive" });
                                         return;
                                       }
-                                      updatedSections[sIdx].questions[qIdx].isOr = true;
+                                      if (prev?.isOr) {
+                                        toast({ title: "Invalid", description: "Previous question already has an alternate", variant: "destructive" });
+                                        return;
+                                      }
+                                      // mark previous as having an OR and mark current as alternate
+                                      prev.isOr = true;
+                                      questions[qIdx].isAlternate = true;
+                                      questions[qIdx].parentIndex = qIdx - 1;
                                     } else {
-                                      updatedSections[sIdx].questions[qIdx].isOr = false;
+                                      // uncheck: remove alternate relationship
+                                      if (prev) prev.isOr = false;
+                                      if (questions[qIdx]?.isAlternate && questions[qIdx].parentIndex === qIdx - 1) {
+                                        questions[qIdx].isAlternate = false;
+                                        delete questions[qIdx].parentIndex;
+                                      }
                                     }
+                                    updatedSections[sIdx].questions = questions;
                                     setEditTemplate({ ...editTemplate, sections: updatedSections });
                                   }}
                                 />
@@ -754,13 +799,10 @@ const Templates = () => {
                                 return { ...q, type: newType };
                               });
                             }
-                            // For Section C (baseQuestionNumber 16), enforce OR pairing like Part B
+                            // Ensure default type/marks for Section C but do not auto-create OR pairs here.
                             if (updatedSections[sIdx].baseQuestionNumber === 16 || /section\s*c/i.test(updatedSections[sIdx].name)) {
                               updatedSections[sIdx].questions = updatedSections[sIdx].questions.map((q, idx) => ({
                                 ...q,
-                                // Even index (1-based 2,4,...) is OR of previous; first cannot be OR
-                                isOr: idx > 0 ? idx % 2 === 1 : false,
-                                // Default to descriptive if not already set by pattern
                                 type: q.type || 'descriptive',
                                 marks: q.marks ?? (updatedSections[sIdx].marksPerQuestion || 16),
                               }));
@@ -847,6 +889,32 @@ const Templates = () => {
                               <option value="objective">Objective</option>
                               <option value="descriptive">Descriptive</option>
                             </select>
+                          </div>
+                          <div className="flex flex-col items-start">
+                            <Label className="text-xs">Base</Label>
+                            <div className="flex items-center h-8">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4"
+                                checked={!!q.isBase}
+                                onChange={(e) => {
+                                  const updatedSections = [...newTemplate.sections];
+                                  const questions = updatedSections[sIdx].questions;
+                                  // toggle base
+                                  questions[qIdx].isBase = !!e.target.checked;
+                                  // if unsetting base, revert an immediate alternate if present
+                                  if (!e.target.checked) {
+                                    const next = questions[qIdx + 1];
+                                    if (next && next.isAlternate && next.parentIndex === qIdx) {
+                                      questions[qIdx + 1].isAlternate = false;
+                                      delete questions[qIdx + 1].parentIndex;
+                                    }
+                                  }
+                                  updatedSections[sIdx].questions = questions;
+                                  setNewTemplate({ ...newTemplate, sections: updatedSections });
+                                }}
+                              />
+                            </div>
                           </div>
                           <div className="col-span-2 flex items-end">
                             <p className="text-xs text-muted-foreground">Will fetch random question</p>
@@ -951,33 +1019,46 @@ const Templates = () => {
                           </div>
                           <div>
                             <Label className="text-xs">OR</Label>
-                            <div className="flex items-center h-8">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4"
-                                disabled={qIdx === 0}
-                                checked={!!q.isOr}
-                                onChange={(e) => {
-                                  const updatedSections = [...newTemplate.sections];
-                                  const prev = updatedSections[sIdx].questions[qIdx - 1];
-                                  if (e.target.checked) {
-                                    // Validate previous question exists and is not already an OR option.
-                                    if (qIdx === 0) {
-                                      toast({ title: "Not Allowed", description: "First question cannot be marked OR", variant: "destructive" });
-                                      return;
+                              <div className="flex items-center h-8">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4"
+                                  disabled={qIdx === 0}
+                                  checked={!!q.isAlternate}
+                                  onChange={(e) => {
+                                    const updatedSections = [...newTemplate.sections];
+                                    const questions = updatedSections[sIdx].questions;
+                                    const prev = questions[qIdx - 1];
+                                    if (e.target.checked) {
+                                      if (qIdx === 0) {
+                                        toast({ title: "Not Allowed", description: "First question cannot be marked OR", variant: "destructive" });
+                                        return;
+                                      }
+                                      if (!prev?.isBase) {
+                                        toast({ title: "Invalid", description: "Mark the previous question as Base before creating an alternate", variant: "destructive" });
+                                        return;
+                                      }
+                                      if (prev?.isOr) {
+                                        toast({ title: "Invalid", description: "Previous question already has an alternate", variant: "destructive" });
+                                        return;
+                                      }
+                                      // mark previous as having an OR and mark current as alternate
+                                      prev.isOr = true;
+                                      questions[qIdx].isAlternate = true;
+                                      questions[qIdx].parentIndex = qIdx - 1;
+                                    } else {
+                                      // uncheck: remove alternate relationship
+                                      if (prev) prev.isOr = false;
+                                      if (questions[qIdx]?.isAlternate && questions[qIdx].parentIndex === qIdx - 1) {
+                                        questions[qIdx].isAlternate = false;
+                                        delete questions[qIdx].parentIndex;
+                                      }
                                     }
-                                    if (prev?.isOr) {
-                                      toast({ title: "Invalid", description: "Consecutive OR options not allowed", variant: "destructive" });
-                                      return;
-                                    }
-                                    updatedSections[sIdx].questions[qIdx].isOr = true;
-                                  } else {
-                                    updatedSections[sIdx].questions[qIdx].isOr = false;
-                                  }
-                                  setNewTemplate({ ...newTemplate, sections: updatedSections });
-                                }}
-                              />
-                            </div>
+                                    updatedSections[sIdx].questions = questions;
+                                    setNewTemplate({ ...newTemplate, sections: updatedSections });
+                                  }}
+                                />
+                              </div>
                             <p className="text-[10px] text-muted-foreground">{qIdx === 0 ? 'Base question' : 'Alternate to previous'}</p>
                           </div>
                         </div>

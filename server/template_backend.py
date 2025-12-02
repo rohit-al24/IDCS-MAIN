@@ -132,6 +132,7 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'btl': btl_a,
                                 'marks': marks_a,
                                 'part': part,
+                                'chapter': 1,
                                 'or': False
                             })
                         if q_b:
@@ -142,6 +143,7 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'btl': btl_b,
                                 'marks': marks_b,
                                 'part': part,
+                                'chapter': 2,
                                 'or': True
                             })
                         i += 3
@@ -523,27 +525,23 @@ async def generate_docx(
     for i, w in enumerate(widths_b):
         for row in table_b.rows:
             row.cells[i].width = w
-    # Render Part B with (a), OR row, (b) for each pair
-    b_pairs = []
-    temp_pair = []
-    for q in _questions:
-        if isinstance(q, dict) and q.get('part', '').upper() == 'B':
-            temp_pair.append(q)
-            if len(temp_pair) == 2:
-                b_pairs.append(temp_pair)
-                temp_pair = []
-    # Always print 5 pairs: 11, 12, 13, 14, 15, even if some pairs are missing (insert empty rows)
+    # Custom logic: 11A-15A should use chapter=="1"; 11B-15B should use chapter=="2"
+    def filter_by_chapter(questions, chapter_value):
+        return [q for q in questions if str(q.get('chapter', '')).strip() == str(chapter_value)]
+
+    # Build pairs for Part B: 11A-15A (chapter==1), 11B-15B (chapter==2)
+    part_b_questions = [q for q in _questions if isinstance(q, dict) and q.get('part', '').upper() == 'B']
+    a_questions = filter_by_chapter(part_b_questions, "1")
+    b_questions = filter_by_chapter(part_b_questions, "2")
+    # Pad to 5 each
+    while len(a_questions) < 5:
+        a_questions.append(None)
+    while len(b_questions) < 5:
+        b_questions.append(None)
     for pair_idx in range(5):
         base_no = str(11 + pair_idx)
-        pair = b_pairs[pair_idx] if pair_idx < len(b_pairs) else None
-        if pair:
-            try:
-                pair_sorted = sorted(pair, key=lambda q: str(q.get('sub','')))
-            except Exception:
-                pair_sorted = pair
-            qa, qb = pair_sorted
-        else:
-            qa, qb = None, None
+        qa = a_questions[pair_idx]
+        qb = b_questions[pair_idx]
         # (a) row
         row_a = table_b.add_row().cells
         for i, w in enumerate(widths_b):
@@ -552,9 +550,7 @@ async def generate_docx(
         p_a = row_a[1].paragraphs[0]
         p_a.paragraph_format.left_indent = Inches(0.0)
         if qa:
-            # Add question text
             p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
-            # Add image if present
             img_url = qa.get('image_url')
             if img_url:
                 try:
@@ -571,7 +567,7 @@ async def generate_docx(
                         ext = '.png' if 'png' in header else '.jpg'
                         img_stream = BytesIO(img_bytes)
                         p_a.add_run().add_picture(img_stream, width=Inches(2.5))
-                        logger.info("Inserted data:image for PART-A question %s (ext=%s)", idx, ext)
+                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", base_no, ext)
                     elif img_url.startswith('http'):
                         resp = requests.get(img_url)
                         if resp.ok:
@@ -579,20 +575,18 @@ async def generate_docx(
                             ext = '.png' if 'png' in content_type else '.jpg'
                             img_stream = BytesIO(resp.content)
                             p_a.add_run().add_picture(img_stream, width=Inches(2.5))
-                            logger.info("Fetched and inserted PART-A remote image for %s (content-type=%s)", idx, content_type)
+                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", base_no, content_type)
                 except StopIteration:
                     pass
                 except Exception as e:
-                    logger.exception("Failed to insert PART-A image for %s, img_url=%s", idx, img_url)
+                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", base_no, img_url)
                     p_a.add_run(" [Image error]")
             row_a[2].text = _first_non_empty(qa, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_a[3].text = _first_non_empty(qa, ['btl','bloom','bloom_level','bt','bt_level'])
             row_a[4].text = _first_non_empty(qa, ['marks','mark','score','points'])
         else:
             row_a[2].text = row_a[3].text = row_a[4].text = ""
-        for p in (
-            row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs
-        ):
+        for p in (row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         # OR row (spanning all columns, centered)
@@ -610,9 +604,7 @@ async def generate_docx(
         p_b = row_b[1].paragraphs[0]
         p_b.paragraph_format.left_indent = Inches(0.0)
         if qb:
-            # Add question text
             p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
-            # Add image if present
             img_url = qb.get('image_url')
             if img_url:
                 try:
@@ -629,7 +621,7 @@ async def generate_docx(
                         ext = '.png' if 'png' in header else '.jpg'
                         img_stream = BytesIO(img_bytes)
                         p_b.add_run().add_picture(img_stream, width=Inches(2.5))
-                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", idx, ext)
+                        logger.info("Inserted data:image for PART-B question %s (ext=%s)", base_no, ext)
                     elif img_url.startswith('http'):
                         resp = requests.get(img_url)
                         if resp.ok:
@@ -637,20 +629,18 @@ async def generate_docx(
                             ext = '.png' if 'png' in content_type else '.jpg'
                             img_stream = BytesIO(resp.content)
                             p_b.add_run().add_picture(img_stream, width=Inches(2.5))
-                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", idx, content_type)
+                            logger.info("Fetched and inserted PART-B remote image for %s (content-type=%s)", base_no, content_type)
                 except StopIteration:
                     pass
                 except Exception as e:
-                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", idx, img_url)
+                    logger.exception("Failed to insert PART-B image for %s, img_url=%s", base_no, img_url)
                     p_b.add_run(" [Image error]")
             row_b[2].text = _first_non_empty(qb, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
             row_b[3].text = _first_non_empty(qb, ['btl','bloom','bloom_level','bt','bt_level'])
             row_b[4].text = _first_non_empty(qb, ['marks','mark','score','points'])
         else:
             row_b[2].text = row_b[3].text = row_b[4].text = ""
-        for p in (
-            row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs
-        ):
+        for p in (row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(" ")
     doc.add_paragraph("******************").bold = True

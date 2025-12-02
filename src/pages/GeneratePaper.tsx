@@ -81,6 +81,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useMemo } from "react";
 import { ArrowLeft, Download, FileText, Key } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { Document, Packer, Paragraph, TextRun, ImageRun } from "docx";
@@ -90,6 +91,13 @@ import { BACKEND_BASE_URL } from "@/config/api";
 
 type Template = Tables<"templates">;
 type Question = Tables<"question_bank">;
+
+// Extend the Question type to include additional properties
+interface ExtendedQuestion extends Question {
+  part?: string;
+  baseNumber?: number;
+  sub?: string;
+}
 
 const GeneratePaper = () => {
     // Helper: prefer Excel-style CO numbers text
@@ -109,6 +117,9 @@ const GeneratePaper = () => {
     const [manualPickList, setManualPickList] = useState<any[]>([]);
     const [manualPickLoading, setManualPickLoading] = useState(false);
     const [manualPickType, setManualPickType] = useState<string>("");
+    // Debug counts for Part B chapter verification
+    const [debugCounts, setDebugCounts] = useState<{ partBTotal: number; chapterCounts: Record<string, number> } | null>(null);
+    const [showDebugCounts, setShowDebugCounts] = useState<boolean>(true);
 
     // Open manual pick dialog for a question
     const openManualPick = async (copy: 1|2, qIdx: number) => {
@@ -426,13 +437,19 @@ const GeneratePaper = () => {
           const marksMatch = Number(q.marks) === Number(config.marks || 16);
           return typeMatch && coMatch && btlMatch && notUsed && marksMatch;
         });
-        let qa = null, qb = null;
-        if (pool.length >= 2) {
-          qa = pool[Math.floor(Math.random()*pool.length)];
+        let qa: any = null, qb: any = null;
+        // Enforce chapter-based selection: A -> chapter '1', B -> chapter '2'
+        const poolA = pool.filter(q => String(q.chapter) === '1');
+        const poolB = pool.filter(q => String(q.chapter) === '2');
+
+        if (poolA.length > 0 && poolB.length > 0) {
+          // Prefer matching BTL across the pair; if not possible, pick any from poolB
+          qa = poolA[Math.floor(Math.random() * poolA.length)];
           const qaBTL = String((qa as any).btl);
-          const poolB = pool.filter(q => q.id !== qa.id && String((q as any).btl) === qaBTL);
-          if (poolB.length > 0) {
-            qb = poolB[Math.floor(Math.random()*poolB.length)];
+          const poolBMatching = poolB.filter(q => String((q as any).btl) === qaBTL);
+          if (poolBMatching.length > 0) qb = poolBMatching[Math.floor(Math.random() * poolBMatching.length)];
+          else qb = poolB[Math.floor(Math.random() * poolB.length)];
+          if (qa && qb) {
             pickedIds.add(qa.id); pickedIds.add(qb.id);
             (qa as any).co = (qa as any).course_outcomes; (qb as any).co = (qb as any).course_outcomes;
             (qa as any).part = 'B'; (qb as any).part = 'B';
@@ -443,33 +460,35 @@ const GeneratePaper = () => {
             (qa as any).marks = marksToAssign; (qb as any).marks = marksToAssign;
             const btlValue = (qa as any).btl; (qb as any).btl = btlValue;
             generated.push(qa as any); generated.push(qb as any);
-          } else {
-            // Only one question found, insert placeholder for B
-            (qa as any).co = (qa as any).course_outcomes;
-            (qa as any).part = 'B';
-            (qa as any).baseNumber = baseNumber;
-            (qa as any).sub = 'a';
-            (qa as any).or = false;
-            (qa as any).marks = config.marks || 16;
-            generated.push(qa as any);
-            // Insert empty placeholder for B
-            generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
-            partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
           }
-        } else if (pool.length === 1) {
-          qa = pool[0];
+        } else if (poolA.length > 0 && poolB.length === 0) {
+          // Only A available (chapter 1); insert A and placeholder for B
+          qa = poolA[Math.floor(Math.random() * poolA.length)];
           (qa as any).co = (qa as any).course_outcomes;
           (qa as any).part = 'B';
           (qa as any).baseNumber = baseNumber;
           (qa as any).sub = 'a';
           (qa as any).or = false;
           (qa as any).marks = config.marks || 16;
+          pickedIds.add(qa.id);
           generated.push(qa as any);
-          // Insert empty placeholder for B
           generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
+        } else if (poolA.length === 0 && poolB.length > 0) {
+          // Only B available (chapter 2); insert placeholder for A and real B
+          qb = poolB[Math.floor(Math.random() * poolB.length)];
+          (qb as any).co = (qb as any).course_outcomes;
+          (qb as any).part = 'B';
+          (qb as any).baseNumber = baseNumber;
+          (qb as any).sub = 'b';
+          (qb as any).or = true;
+          (qb as any).marks = config.marks || 16;
+          pickedIds.add(qb.id);
+          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          generated.push(qb as any);
+          partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         } else {
-          // Insert empty placeholders for both A and B
+          // Neither available: placeholders for both
           generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
@@ -591,6 +610,19 @@ const GeneratePaper = () => {
         }
         toast({ title: "Error", description: "No verified questions available", variant: "destructive" });
         return;
+      }
+
+      // Debug: compute Part B chapter counts so user can verify DB tagging
+      try {
+        const partB = (verifiedQuestions || []).filter((q: any) => (q.part || q.type)?.toString().toUpperCase().includes('B') || (q.part === 'B'));
+        const chapterCounts: Record<string, number> = {};
+        for (const q of partB) {
+          const ch = (q.chapter ?? '').toString() || 'unknown';
+          chapterCounts[ch] = (chapterCounts[ch] || 0) + 1;
+        }
+        setDebugCounts({ partBTotal: partB.length, chapterCounts });
+      } catch (e) {
+        console.warn('Failed to compute debug counts', e);
       }
 
 
@@ -885,6 +917,88 @@ const GeneratePaper = () => {
   // Pagination controls for questions
   const totalQuestionsPages = Math.ceil(totalQuestions / QUESTIONS_PAGE_SIZE) || 1;
 
+  // Helper to select Part B questions by chapter
+  function selectPartBQuestionsByChapter(questions: ExtendedQuestion[], chapterValue: string) {
+    return questions.filter(q => String(q.chapter) === String(chapterValue) && q.part === 'B');
+  }
+
+  // When generating questions for Part B (11A-15A, 11B-15B)
+  function buildPartBQuestions(allQuestions: ExtendedQuestion[]) {
+    // Get all chapter 1 and chapter 2 questions for Part B
+    const aQuestions = allQuestions.filter(q => q.part === 'B' && String(q.chapter) === '1');
+    const bQuestions = allQuestions.filter(q => q.part === 'B' && String(q.chapter) === '2');
+    const result: ExtendedQuestion[] = [];
+    for (let i = 0; i < 5; i++) {
+      // For each slot, take ith from chapter 1 for A, ith from chapter 2 for B
+      result.push(aQuestions[i] ? { ...aQuestions[i], baseNumber: 11 + i, sub: 'a', part: 'B', chapter: '1' } : {
+        baseNumber: 11 + i,
+        sub: 'a',
+        part: 'B',
+        chapter: '1',
+        correct_answer: '',
+        created_at: '',
+        difficulty: 'easy',
+        id: '',
+        marks: 0,
+        options: {},
+        question_text: '',
+        status: 'pending',
+        image_url: '',
+        topic: '',
+        type: 'objective',
+        unit: '',
+        updated_at: '',
+        user_id: '',
+        course_outcomes: '',
+        title: '',
+        answer_text: '',
+        btl: 0
+      });
+      result.push(bQuestions[i] ? { ...bQuestions[i], baseNumber: 11 + i, sub: 'b', part: 'B', chapter: '2' } : {
+        baseNumber: 11 + i,
+        sub: 'b',
+        part: 'B',
+        chapter: '2',
+        correct_answer: '',
+        created_at: '',
+        difficulty: 'easy',
+        id: '',
+        marks: 0,
+        options: {},
+        question_text: '',
+        status: 'pending',
+        image_url: '',
+        topic: '',
+        type: 'objective',
+        unit: '',
+        updated_at: '',
+        user_id: '',
+        course_outcomes: '',
+        title: '',
+        answer_text: '',
+        btl: 0
+      });
+    }
+    return result;
+  }
+
+  // Helper to build Part B questions for both copies
+  function buildPartBQuestionsForAll(allQuestions: ExtendedQuestion[]) {
+    // 11A-15A: chapter 1, 11B-15B: chapter 2
+    const aQuestions = allQuestions.filter(q => q.part === 'B' && String(q.chapter) === '1');
+    const bQuestions = allQuestions.filter(q => q.part === 'B' && String(q.chapter) === '2');
+    // Pad to 5 each
+    while (aQuestions.length < 5) aQuestions.push({} as ExtendedQuestion);
+    while (bQuestions.length < 5) bQuestions.push({} as ExtendedQuestion);
+    const result: ExtendedQuestion[] = [];
+    for (let i = 0; i < 5; i++) {
+      result.push({ ...aQuestions[i], baseNumber: 11 + i, sub: 'a', part: 'B', chapter: '1' });
+      result.push({ ...bQuestions[i], baseNumber: 11 + i, sub: 'b', part: 'B', chapter: '2' });
+    }
+    return result;
+  }
+
+  // --- Main component render ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
       <nav className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
@@ -899,6 +1013,34 @@ const GeneratePaper = () => {
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Debug panel: shows counts of Part B questions by chapter (helpful to verify DB tagging) */}
+          {showDebugCounts ? (
+            debugCounts ? (
+              <div className="bg-yellow-50 border-yellow-200 border p-3 rounded">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-sm font-semibold mb-1">Debug — Part B question counts</div>
+                    <div className="text-xs">Total Part B: <span className="font-medium">{debugCounts.partBTotal}</span></div>
+                    <div className="text-xs mt-1">By chapter: {Object.entries(debugCounts.chapterCounts).map(([ch, cnt]) => (
+                      <span key={ch} className="mr-3">Ch {ch}: <strong>{cnt}</strong></span>
+                    ))}</div>
+                  </div>
+                  <div>
+                    <Button variant="ghost" onClick={() => setShowDebugCounts(false)}>Hide</Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-yellow-50 border-yellow-200 border p-3 rounded flex items-center justify-between">
+                <div className="text-sm">Debug counts not available yet.</div>
+                <div><Button variant="ghost" onClick={() => setShowDebugCounts(false)}>Hide</Button></div>
+              </div>
+            )
+          ) : (
+            <div className="text-right">
+              <Button variant="ghost" onClick={() => setShowDebugCounts(true)}>Show debug counts</Button>
+            </div>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Generate Options</CardTitle>
@@ -1192,7 +1334,7 @@ const GeneratePaper = () => {
                                                         <td className="p-2 border"><Button size="sm" onClick={()=>pickManualQuestion(q)}>Pick</Button></td>
                                                       </tr>
                                                     ))}
-                                                  {manualPickList.filter(q => !manualPickType || (q.type || q.TYPE || q.type_letter || q.excel_type) === manualPickType).length === 0 && (
+                                                  {manualPickList.filter(q => !manualPickType || (q.type || q.TYPE || q.excel_type) === manualPickType).length === 0 && (
                                                     <tr><td colSpan={9} className="text-center p-4">No questions found in bank</td></tr>
                                                   )}
                                                 </tbody>
