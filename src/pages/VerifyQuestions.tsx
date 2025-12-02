@@ -22,6 +22,10 @@ const VerifyQuestions = () => {
   const { toast } = useToast();
   const [unverifiedQuestions, setUnverifiedQuestions] = useState<Question[]>([]);
   const [verifiedQuestions, setVerifiedQuestions] = useState<Question[]>([]);
+  // Pagination state
+  const [verifiedPage, setVerifiedPage] = useState(1);
+  const [unverifiedPage, setUnverifiedPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editedQuestion, setEditedQuestion] = useState<Partial<Question>>({});
@@ -30,10 +34,13 @@ const VerifyQuestions = () => {
   // For select all/individual selection in unverified tab
   const [selectedUnverifiedIds, setSelectedUnverifiedIds] = useState<string[]>([]);
   const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({});
+  const [totalVerified, setTotalVerified] = useState(0);
+  const [totalUnverified, setTotalUnverified] = useState(0);
 
   useEffect(() => {
     fetchQuestions();
-  }, []);
+    // eslint-disable-next-line
+  }, [verifiedPage, unverifiedPage]);
 
   // Build image object URLs for questions' image_url values.
   useEffect(() => {
@@ -129,19 +136,37 @@ const VerifyQuestions = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Now: unverified = status 'verified', verified = status 'pending'
-      const { data: unverified } = await supabase
-        .from("question_bank")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("status", "verified");
+      // Fetch total counts for pagination
+      const [{ count: verifiedCount }, { count: unverifiedCount }] = await Promise.all([
+        supabase
+          .from("question_bank")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "pending"),
+        supabase
+          .from("question_bank")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "verified"),
+      ]);
+      setTotalVerified(verifiedCount || 0);
+      setTotalUnverified(unverifiedCount || 0);
 
-      const { data: verified } = await supabase
-        .from("question_bank")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("status", "pending");
-
+      // Fetch only the current page for each
+      const [{ data: unverified }, { data: verified }] = await Promise.all([
+        supabase
+          .from("question_bank")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "verified")
+          .range((unverifiedPage - 1) * PAGE_SIZE, unverifiedPage * PAGE_SIZE - 1),
+        supabase
+          .from("question_bank")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "pending")
+          .range((verifiedPage - 1) * PAGE_SIZE, verifiedPage * PAGE_SIZE - 1),
+      ]);
       setUnverifiedQuestions(unverified || []);
       setVerifiedQuestions(verified || []);
     } catch (error) {
@@ -197,6 +222,11 @@ const VerifyQuestions = () => {
     }
   };
 
+  // Pagination helpers
+  const getPage = (arr: Question[]) => arr;
+  const totalVerifiedPages = Math.ceil(totalVerified / PAGE_SIZE) || 1;
+  const totalUnverifiedPages = Math.ceil(totalUnverified / PAGE_SIZE) || 1;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
       <nav className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
@@ -213,10 +243,10 @@ const VerifyQuestions = () => {
         <Tabs defaultValue="verified" className="w-full">
           <TabsList className="grid w-full max-w-md grid-cols-2">
             <TabsTrigger value="verified">
-              Unverified ({verifiedQuestions.length})
+              Unverified ({totalVerified})
             </TabsTrigger>
             <TabsTrigger value="unverified">
-              Verified ({unverifiedQuestions.length})
+              Verified ({totalUnverified})
             </TabsTrigger>
           </TabsList>
 
@@ -234,10 +264,10 @@ const VerifyQuestions = () => {
                     <div className="mb-4 flex gap-2 items-center">
                       <input
                         type="checkbox"
-                        checked={selectedIds.length === verifiedQuestions.length && verifiedQuestions.length > 0}
+                        checked={selectedIds.length === getPage(verifiedQuestions).length && getPage(verifiedQuestions).length > 0}
                         onChange={e => {
                           if (e.target.checked) {
-                            setSelectedIds(verifiedQuestions.map(q => q.id));
+                            setSelectedIds(getPage(verifiedQuestions).map(q => q.id));
                           } else {
                             setSelectedIds([]);
                           }
@@ -281,7 +311,7 @@ const VerifyQuestions = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {verifiedQuestions.map((q, idx) => (
+                          {getPage(verifiedQuestions).map((q, idx) => (
                             <TableRow key={q.id}>
                               <TableCell>
                                 <input
@@ -296,7 +326,7 @@ const VerifyQuestions = () => {
                                   }}
                                 />
                               </TableCell>
-                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>{(verifiedPage - 1) * PAGE_SIZE + idx + 1}</TableCell>
                               <TableCell className="max-w-md">
                                 <div className="flex flex-col gap-2">
                                   <div className="truncate">{q.question_text}</div>
@@ -306,8 +336,6 @@ const VerifyQuestions = () => {
                                 </div>
                               </TableCell>
                               <TableCell className="capitalize">{
-                                // Show Part C if excel_type is present (local) or if type is descriptive and question_text contains a C marker (Supabase fallback)
-                                // You may want to adjust this fallback logic to match your data
                                 ((q as any)?.excel_type === 'C' || (q.type === 'descriptive' && /\bpart\s*c\b|\(c\)|\[c\]/i.test(q.question_text)))
                                   ? 'Part C'
                                   : q.type
@@ -330,6 +358,12 @@ const VerifyQuestions = () => {
                         </TableBody>
                       </Table>
                     </div>
+                    {/* Pagination controls */}
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button variant="outline" size="sm" onClick={() => setVerifiedPage(p => Math.max(1, p - 1))} disabled={verifiedPage === 1}>Prev</Button>
+                      <span>Page {verifiedPage} of {totalVerifiedPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setVerifiedPage(p => Math.min(totalVerifiedPages, p + 1))} disabled={verifiedPage === totalVerifiedPages}>Next</Button>
+                    </div>
                   </>
                 )}
               </CardContent>
@@ -350,10 +384,10 @@ const VerifyQuestions = () => {
                     <div className="mb-4 flex gap-2 items-center">
                       <input
                         type="checkbox"
-                        checked={selectedUnverifiedIds.length === unverifiedQuestions.length && unverifiedQuestions.length > 0}
+                        checked={selectedUnverifiedIds.length === getPage(unverifiedQuestions).length && getPage(unverifiedQuestions).length > 0}
                         onChange={e => {
                           if (e.target.checked) {
-                            setSelectedUnverifiedIds(unverifiedQuestions.map(q => q.id));
+                            setSelectedUnverifiedIds(getPage(unverifiedQuestions).map(q => q.id));
                           } else {
                             setSelectedUnverifiedIds([]);
                           }
@@ -398,7 +432,7 @@ const VerifyQuestions = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {unverifiedQuestions.map((q, idx) => (
+                          {getPage(unverifiedQuestions).map((q, idx) => (
                             <TableRow key={q.id}>
                               <TableCell>
                                 <input
@@ -413,7 +447,7 @@ const VerifyQuestions = () => {
                                   }}
                                 />
                               </TableCell>
-                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell>{(unverifiedPage - 1) * PAGE_SIZE + idx + 1}</TableCell>
                               <TableCell>
                                 {(imageSrcs[q.id] || q.image_url) ? (
                                   (imageSrcs[q.id] || q.image_url).startsWith("data:") ? (
@@ -453,6 +487,12 @@ const VerifyQuestions = () => {
                           ))}
                         </TableBody>
                       </Table>
+                    </div>
+                    {/* Pagination controls */}
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button variant="outline" size="sm" onClick={() => setUnverifiedPage(p => Math.max(1, p - 1))} disabled={unverifiedPage === 1}>Prev</Button>
+                      <span>Page {unverifiedPage} of {totalUnverifiedPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setUnverifiedPage(p => Math.min(totalUnverifiedPages, p + 1))} disabled={unverifiedPage === totalUnverifiedPages}>Next</Button>
                     </div>
                   </>
                 )}

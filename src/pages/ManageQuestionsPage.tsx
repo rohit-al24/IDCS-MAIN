@@ -1,5 +1,3 @@
-
-
 import { useEffect, useState, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -166,6 +164,13 @@ const ManageQuestionsPage: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Pagination state for questions
+  const [questionsPage, setQuestionsPage] = useState(1);
+  const QUESTIONS_PAGE_SIZE = 50;
+  const [totalQuestions, setTotalQuestions] = useState(0);
+
+  const totalQuestionsPages = Math.max(1, Math.ceil(totalQuestions / QUESTIONS_PAGE_SIZE));
+
   useEffect(() => {
     const fetchBanks = async () => {
       setLoading(true);
@@ -216,12 +221,22 @@ const ManageQuestionsPage: React.FC = () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setQuestions([]); setQuestionsLoading(false); return; }
+        // Get total count
+        const { count } = await supabase
+          .from("question_bank")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "verified")
+          .eq("title", selectedBank.title);
+        setTotalQuestions(count || 0);
+        // Fetch only the current page
         const { data, error } = await supabase
           .from("question_bank")
           .select("*")
           .eq("user_id", user.id)
           .eq("status", "verified")
-          .eq("title", selectedBank.title);
+          .eq("title", selectedBank.title)
+          .range((questionsPage - 1) * QUESTIONS_PAGE_SIZE, questionsPage * QUESTIONS_PAGE_SIZE - 1);
         if (error) { setQuestions([]); setQuestionsLoading(false); return; }
         setQuestions(data || []);
       } catch {
@@ -230,7 +245,7 @@ const ManageQuestionsPage: React.FC = () => {
       setQuestionsLoading(false);
     };
     fetchQuestions();
-  }, [selectedBank]);
+  }, [selectedBank, questionsPage]);
 
   return (
     <div className="p-8">
@@ -401,38 +416,47 @@ const ManageQuestionsPage: React.FC = () => {
               </table>
             )}
           </div>
-                  {/* Edit Single Question Dialog */}
-                  <Dialog open={!!editingQ} onOpenChange={v => { if (!v) setEditingQ(null); }}>
-                    <DialogContent className="max-w-lg">
-                      <DialogHeader>
-                        <DialogTitle>Edit Question</DialogTitle>
-                      </DialogHeader>
-                      {editingQ && (
-                        <EditableQuestionRow
-                          question={editingQ}
-                          onSave={async (updated) => {
-                            const { data: { user } } = await supabase.auth.getUser();
-                            if (!user) return;
-                            await supabase
-                              .from("question_bank")
-                              .update({
-                                question_text: updated.question_text,
-                                course_outcomes: updated.course_outcomes,
-                                btl: updated.btl,
-                                marks: updated.marks,
-                              })
-                              .eq("id", editingQ.id)
-                              .eq("user_id", user.id);
-                            setQuestions((prev) => prev.map((qq) => qq.id === editingQ.id ? { ...qq, ...updated } : qq));
-                            setEditingQ(null);
-                          }}
-                        />
-                      )}
-                      <DialogFooter>
-                        <Button variant="secondary" onClick={() => setEditingQ(null)}>Close</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                  {/* Pagination controls */}
+                  {questions.length > 0 && (
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.max(1, p - 1))} disabled={questionsPage === 1}>Prev</Button>
+                      <span>Page {questionsPage} of {totalQuestionsPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.min(totalQuestionsPages, p + 1))} disabled={questionsPage === totalQuestionsPages}>Next</Button>
+                    </div>
+                  )}
+
+          {/* Edit Single Question Dialog */}
+          <Dialog open={!!editingQ} onOpenChange={v => { if (!v) setEditingQ(null); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit Question</DialogTitle>
+              </DialogHeader>
+              {editingQ && (
+                <EditableQuestionRow
+                  question={editingQ}
+                  onSave={async (updated) => {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    await supabase
+                      .from("question_bank")
+                      .update({
+                        question_text: updated.question_text,
+                        course_outcomes: updated.course_outcomes,
+                        btl: updated.btl,
+                        marks: updated.marks,
+                      })
+                      .eq("id", editingQ.id)
+                      .eq("user_id", user.id);
+                    setQuestions((prev) => prev.map((qq) => qq.id === editingQ.id ? { ...qq, ...updated } : qq));
+                    setEditingQ(null);
+                  }}
+                />
+              )}
+              <DialogFooter>
+                <Button variant="secondary" onClick={() => setEditingQ(null)}>Close</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </div>

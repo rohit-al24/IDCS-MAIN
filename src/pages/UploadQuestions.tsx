@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Upload, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Upload, Plus, Trash2, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { saveAs } from "file-saver";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,8 @@ interface Question {
   topic?: string | null;
   chapter?: string | null;
   course_outcomes?: string | null;
+  // derived field for previewing exactly what Excel conveys
+  course_outcomes_preview?: string | null;
   image?: string | null;
   // debug fields returned from backend
   image_present?: boolean | null;
@@ -58,6 +60,7 @@ const UploadQuestions = () => {
   });
   const [isTitleDialogOpen, setIsTitleDialogOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
   const fileNameRef = useRef<string>("");
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,7 +83,21 @@ const UploadQuestions = () => {
       }
       const result = await res.json();
       if (result.questions && Array.isArray(result.questions)) {
-        setQuestions(result.questions);
+        // Normalize CO preview to reflect Excel content as numbers (e.g., 1,2,3,4,5)
+        const normalized = result.questions.map((q: any) => {
+          const coRaw = q.course_outcomes ?? q.CO ?? q.co ?? q.CourseOutcomes ?? q.courseOutcome ?? "";
+          let preview: string | null = null;
+          if (Array.isArray(coRaw)) {
+            preview = coRaw.map((x: any) => String(x)).join(",");
+          } else if (typeof coRaw === "number") {
+            preview = String(coRaw);
+          } else if (typeof coRaw === "string") {
+            const nums = (coRaw.match(/\d+/g) || []);
+            preview = nums.length ? nums.join(",") : coRaw.trim();
+          }
+          return { ...q, course_outcomes_preview: preview } as Question;
+        });
+        setQuestions(normalized);
         toast({ title: "File uploaded", description: `${result.questions.length} questions parsed from Excel` });
       } else {
         toast({ title: "Error", description: "No questions found in file." });
@@ -218,13 +235,16 @@ const UploadQuestions = () => {
 
   const confirmSaveQuestions = async () => {
     try {
+      setSaving(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast({ title: "Error", description: "Please login first", variant: "destructive" });
+        setSaving(false);
         return;
       }
       if (questions.length === 0) {
         toast({ title: 'No questions', description: 'Nothing to save.' });
+        setSaving(false);
         return;
       }
       // upload images and prepare insert rows
@@ -311,13 +331,16 @@ const UploadQuestions = () => {
       const { error } = await supabase.from("question_bank").insert(questionsToInsert);
       if (error) {
         console.error("Supabase insert error:", error);
+        setSaving(false);
         throw error;
       }
       toast({ title: "Success", description: "Questions saved successfully" });
       setIsTitleDialogOpen(false);
+      setSaving(false);
       navigate("/verify");
     } catch (error) {
       console.error(error);
+      setSaving(false);
       toast({ title: "Error", description: "Failed to save questions", variant: "destructive" });
     }
   };
@@ -399,8 +422,10 @@ const UploadQuestions = () => {
                     <Input value={title} onChange={e => setTitle(e.target.value)} />
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsTitleDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={confirmSaveQuestions}>Save All</Button>
+                    <Button variant="outline" onClick={() => setIsTitleDialogOpen(false)} disabled={saving}>Cancel</Button>
+                    <Button onClick={confirmSaveQuestions} disabled={saving}>
+                      {saving ? (<><Loader2 className="animate-spin mr-2 h-4 w-4" />Saving...</>) : "Save All"}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -670,8 +695,8 @@ const UploadQuestions = () => {
                           <TableCell className="capitalize">{q.type}</TableCell>
                           <TableCell>{q.btl}</TableCell>
                           <TableCell>{q.marks}</TableCell>
-                          <TableCell style={{ color: !q.course_outcomes ? 'red' : undefined, fontWeight: !q.course_outcomes ? 'bold' : undefined }}>
-                            {q.course_outcomes || "(Missing)"}
+                          <TableCell style={{ color: !q.course_outcomes_preview && !q.course_outcomes ? 'red' : undefined, fontWeight: !q.course_outcomes_preview && !q.course_outcomes ? 'bold' : undefined }}>
+                            {(q as any).course_outcomes_preview ?? (q.course_outcomes || "(Missing)")}
                           </TableCell>
                           <TableCell>
                             <Button

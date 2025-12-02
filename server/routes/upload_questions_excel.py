@@ -344,6 +344,8 @@ def upload_questions_excel(file: UploadFile = File(...)):
                 qtype = 'objective'
             elif type_raw == 'd':
                 qtype = 'descriptive'
+            elif type_raw == 'c':
+                qtype = 'Part_C'
             else:
                 continue
 

@@ -100,11 +100,11 @@ const Templates = () => {
     // Section A fixed 2 marks; Section C (index 2) fetch 16-mark questions
     const defaultMarks = isPartA ? 2 : (idx === 2 ? 16 : 16);
 
-    // Pre-populate Part C (Section 3) with Q16 having OR (16.a / 16.b)
+    // Pre-populate Part C (Section 3) with Q16 having OR (16.a / 16.b), type: 'Part_C'
     const defaultQuestions = idx === 2
       ? [
-          { type: 'descriptive' as const, co: 'CO1', btl: 'random', marks: 16, isOr: false },
-          { type: 'descriptive' as const, co: 'CO1', btl: 'random', marks: 16, isOr: true },
+          { type: 'Part_C', co: 'CO1', btl: 'random', marks: 16, isOr: false },
+          { type: 'Part_C', co: 'CO1', btl: 'random', marks: 16, isOr: true },
         ]
       : [];
     setNewTemplate({
@@ -118,7 +118,7 @@ const Templates = () => {
           marksPerQuestion: defaultMarks,
           difficulty: { easy: 0, medium: 0, hard: 0 },
           questions: defaultQuestions,
-          typePattern: 'OBJECTIVE_ALL',
+          typePattern: idx === 2 ? 'PART_C' : 'OBJECTIVE_ALL',
           baseQuestionNumber: idx === 2 ? 16 : undefined,
           projectionMarks: idx === 2 ? 10 : undefined,
           excelType: idx === 2 ? 'C' : undefined,
@@ -396,21 +396,30 @@ const Templates = () => {
                           <div className="grid grid-cols-7 gap-2 items-start">
                             <div>
                               <Label className="text-xs">Type</Label>
-                              <select
-                                className="w-full text-sm border rounded h-8 px-2 bg-background"
-                                value={q.type}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const updatedSections = [...editTemplate.sections];
-                                  updatedSections[sIdx].questions[qIdx].type = val;
-                                  updatedSections[sIdx].objectiveCount = updatedSections[sIdx].questions.filter((x: any) => x.type === 'objective').length;
-                                  updatedSections[sIdx].descriptiveCount = updatedSections[sIdx].questions.filter((x: any) => x.type === 'descriptive').length;
-                                  setEditTemplate({ ...editTemplate, sections: updatedSections });
-                                }}
-                              >
-                                <option value="objective">Objective</option>
-                                <option value="descriptive">Descriptive</option>
-                              </select>
+                              {section.name.toLowerCase().includes('section c') && qIdx === 0 ? (
+                                <Input
+                                  className="w-full text-sm border rounded h-8 px-2 bg-background"
+                                  value={q.type || 'Part_C'}
+                                  disabled
+                                />
+                              ) : (
+                                <select
+                                  className="w-full text-sm border rounded h-8 px-2 bg-background"
+                                  value={q.type}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const updatedSections = [...editTemplate.sections];
+                                    updatedSections[sIdx].questions[qIdx].type = val;
+                                    updatedSections[sIdx].objectiveCount = updatedSections[sIdx].questions.filter((x: any) => x.type === 'objective').length;
+                                    updatedSections[sIdx].descriptiveCount = updatedSections[sIdx].questions.filter((x: any) => x.type === 'descriptive').length;
+                                    setEditTemplate({ ...editTemplate, sections: updatedSections });
+                                  }}
+                                >
+                                  <option value="objective">Objective</option>
+                                  <option value="descriptive">Descriptive</option>
+                                  <option value="Part_C">Part C</option>
+                                </select>
+                              )}
                             </div>
                             <div className="col-span-2 flex items-end">
                               <p className="text-xs text-muted-foreground">Will fetch random question</p>

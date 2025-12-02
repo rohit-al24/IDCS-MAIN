@@ -9,8 +9,17 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+from logging.handlers import RotatingFileHandler
 logger = logging.getLogger("template_backend")
 logger.setLevel(logging.INFO)
+
+# Add file handler to log to 'server.log' with rotation
+file_handler = RotatingFileHandler("server.log", maxBytes=2*1024*1024, backupCount=3)
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+file_handler.setFormatter(formatter)
+if not any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
+    logger.addHandler(file_handler)
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse

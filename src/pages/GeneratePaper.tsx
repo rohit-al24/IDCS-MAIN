@@ -1,5 +1,5 @@
-
 import { useState, useEffect, useRef } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type ImageSrcs = Record<string, string>;
 
@@ -92,6 +92,64 @@ type Template = Tables<"templates">;
 type Question = Tables<"question_bank">;
 
 const GeneratePaper = () => {
+    // --- Manual Pick State & Functions ---
+    const [manualPick, setManualPick] = useState<{ open: boolean; copy: 1|2; qIdx: number|null }>({ open: false, copy: 1, qIdx: null });
+    const [manualPickList, setManualPickList] = useState<any[]>([]);
+    const [manualPickLoading, setManualPickLoading] = useState(false);
+    const [manualPickType, setManualPickType] = useState<string>("");
+
+    // Open manual pick dialog for a question
+    const openManualPick = async (copy: 1|2, qIdx: number) => {
+      setManualPickLoading(true);
+      setManualPick({ open: true, copy, qIdx });
+      setManualPickType("");
+      // Fetch all questions for the selected bank
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !selectedQuestionBank) { setManualPickList([]); setManualPickLoading(false); return; }
+      const { data } = await supabase
+        .from("question_bank")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "verified")
+        .eq("title", selectedQuestionBank);
+      setManualPickList(data || []);
+      setManualPickLoading(false);
+    };
+
+    // Replace a generated question with a manually picked one
+    const pickManualQuestion = (picked: any) => {
+      if (manualPick.qIdx == null) return;
+      if (manualPick.copy === 1) {
+        setGeneratedQuestions1(list => list.map((q, idx) =>
+          idx === manualPick.qIdx
+            ? {
+                ...picked,
+                baseNumber: (q as any).baseNumber,
+                sub: (q as any).sub,
+                part: (q as any).part,
+                marks: q.marks,
+                or: (q as any).or,
+                co: picked.course_outcomes || picked.co
+              } as Question & { baseNumber?: number; sub?: string; part?: string; or?: boolean; co?: string }
+            : q
+        ));
+      } else {
+        setGeneratedQuestions2(list => list.map((q, idx) =>
+          idx === manualPick.qIdx
+            ? {
+                ...picked,
+                baseNumber: (q as any).baseNumber,
+                sub: (q as any).sub,
+                part: (q as any).part,
+                marks: q.marks,
+                or: (q as any).or,
+                co: picked.course_outcomes || picked.co
+              } as Question & { baseNumber?: number; sub?: string; part?: string; or?: boolean; co?: string }
+            : q
+        ));
+      }
+      setManualPick({ open: false, copy: 1, qIdx: null });
+    };
   const navigate = useNavigate();
   const { toast } = useToast();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -151,6 +209,11 @@ const GeneratePaper = () => {
   const [ocrSelections1, setOcrSelections1] = useState<Record<string, boolean>>({});
   const [ocrSelections2, setOcrSelections2] = useState<Record<string, boolean>>({});
 
+  // Pagination state for question bank questions
+  const [questionsPage, setQuestionsPage] = useState(1);
+  const QUESTIONS_PAGE_SIZE = 50;
+  const [totalQuestions, setTotalQuestions] = useState(0);
+
   useEffect(() => {
     fetchTemplates();
     fetchQuestionBanks();
@@ -193,6 +256,34 @@ const GeneratePaper = () => {
       setQuestionBanks(unique);
     } catch (e) {
       console.error("Failed to fetch question bank titles", e);
+    }
+  };
+
+  // When fetching questions for a selected bank, use backend pagination
+  const fetchQuestionsForBank = async (bankTitle: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      // Get total count
+      const { count } = await supabase
+        .from("question_bank")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("status", "verified")
+        .eq("title", bankTitle);
+      setTotalQuestions(count || 0);
+      // Fetch only the current page
+      const { data, error } = await supabase
+        .from("question_bank")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "verified")
+        .eq("title", bankTitle)
+        .range((questionsPage - 1) * QUESTIONS_PAGE_SIZE, questionsPage * QUESTIONS_PAGE_SIZE - 1);
+      if (error) return [];
+      return data || [];
+    } catch {
+      return [];
     }
   };
 
@@ -381,11 +472,15 @@ const GeneratePaper = () => {
       const cfgA = configQs[0] || {}; const cfgB = configQs[1] || {};
       const requiredMarks = Number(sectionC.marksPerQuestion || 16); // fetch from 16 marks
       const displayMarks = Number(sectionC.projectionMarks || requiredMarks);
+      // Strictly enforce pulling Part_C typed questions when template indicates Part C
+      const enforcePartCType = (cfgA.type === 'Part_C') || (cfgB.type === 'Part_C') || (sectionC.typePattern === 'PART_C');
       const poolA = verifiedQuestions.filter(q => {
         const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
         const coNormA = String(cfgA.co || 'CO1').toLowerCase();
         const coMatch = coNormA === 'random' ? true : (qco === coNormA);
-        const typeMatch = !cfgA.type || q.type === cfgA.type || q.type === 'descriptive';
+        // Accept Part_C if any type field matches
+        const allTypes = [q.type, (q as any).TYPE, (q as any).type_letter, (q as any).excel_type].map(t => String(t || '').toUpperCase());
+        const typeMatch = enforcePartCType ? allTypes.includes('PART_C') : (!cfgA.type || q.type === cfgA.type || q.type === 'descriptive');
         const btlMatch = !cfgA.btl || cfgA.btl === 'random' || String((q as any).btl) === String(cfgA.btl).replace(/BTL/i,'');
         const notUsed = !pickedIds.has(q.id);
         const marksMatch = Number(q.marks) === requiredMarks;
@@ -402,7 +497,8 @@ const GeneratePaper = () => {
           const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
           const coNormB = String(cfgB.co || cfgA.co || 'CO1').toLowerCase();
           const coMatch = coNormB === 'random' ? true : (qco === coNormB);
-          const typeMatch = !cfgB.type || q.type === cfgB.type || q.type === 'descriptive';
+          const allTypes = [q.type, (q as any).TYPE, (q as any).type_letter, (q as any).excel_type].map(t => String(t || '').toUpperCase());
+          const typeMatch = enforcePartCType ? allTypes.includes('PART_C') : (!cfgB.type || q.type === cfgB.type || q.type === 'descriptive');
           const btlMatch = !cfgB.btl || cfgB.btl === 'random' || String((q as any).btl) === qaBTL;
           const notUsed = !pickedIds.has(q.id) && q.id !== qa.id;
           const marksMatch = Number(q.marks) === requiredMarks;
@@ -774,6 +870,9 @@ const GeneratePaper = () => {
     saveAs(blob, `answer_key_${label.replace(/\s+/g,'_')}.txt`);
   };
 
+  // Pagination controls for questions
+  const totalQuestionsPages = Math.ceil(totalQuestions / QUESTIONS_PAGE_SIZE) || 1;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
       <nav className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
@@ -931,7 +1030,7 @@ const GeneratePaper = () => {
                       <div className="bg-muted p-4 rounded-lg">
                         <p className="text-sm text-muted-foreground mb-2">Preview</p>
                         <p className="font-semibold mb-2">Total Questions: {generatedQuestions1.length}</p>
-                        <p className="text-sm">Objective: {generatedQuestions1.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions1.filter((q:any)=>q.type==='descriptive').length}</p>
+                        <p className="text-sm">Objective: {generatedQuestions1.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions1.filter((q:any)=> q.type==='descriptive' || q.type==='Part_C').length} {generatedQuestions1.some((q:any)=>q.type==='Part_C') && <span className="ml-2 text-xs text-blue-700">(+Part C)</span>}</p>
                       </div>
                       <div className="space-y-3 max-h-96 overflow-y-auto">
                         {generatedQuestions1.map((q:any, idx:number) => (
@@ -939,7 +1038,14 @@ const GeneratePaper = () => {
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                                {/* Show Type for 16th question (Part C) */}
+                                {q.baseNumber === 16 && q.type && (
+                                  <span className="text-xs text-blue-700 font-bold">Type: {q.type === 'Part_C' ? 'Part C' : q.type}</span>
+                                )}
                               </span>
+                              <div className="flex gap-2 mt-2">
+                                <Button size="sm" variant="outline" onClick={()=>openManualPick(1, idx)}>Pick Manually</Button>
+                              </div>
                               {(imageSrcs1[q.id] || q.image_url) ? (
                                 <div>
                                   <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
@@ -998,7 +1104,7 @@ const GeneratePaper = () => {
                       <div className="bg-muted p-4 rounded-lg">
                         <p className="text-sm text-muted-foreground mb-2">Preview</p>
                         <p className="font-semibold mb-2">Total Questions: {generatedQuestions2.length}</p>
-                        <p className="text-sm">Objective: {generatedQuestions2.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions2.filter((q:any)=>q.type==='descriptive').length}</p>
+                        <p className="text-sm">Objective: {generatedQuestions2.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions2.filter((q:any)=> q.type==='descriptive' || q.type==='Part_C').length} {generatedQuestions2.some((q:any)=>q.type==='Part_C') && <span className="ml-2 text-xs text-blue-700">(+Part C)</span>}</p>
                       </div>
                       <div className="space-y-3 max-h-96 overflow-y-auto">
                         {generatedQuestions2.map((q:any, idx:number) => (
@@ -1007,6 +1113,84 @@ const GeneratePaper = () => {
                               <span>
                                 Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks)</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                               </span>
+                              <div className="flex gap-2 mt-2">
+                                <Button size="sm" variant="outline" onClick={()=>openManualPick(2, idx)}>Pick Manually</Button>
+                              </div>
+                                    {/* Manual Pick Dialog */}
+                                    <Dialog open={manualPick.open} onOpenChange={v=>setManualPick(p=>({...p, open:v}))}>
+                                      <DialogContent className="max-w-3xl">
+                                        <DialogHeader>
+                                          <DialogTitle>Pick Question from Bank</DialogTitle>
+                                        </DialogHeader>
+                                        {manualPickLoading ? (
+                                          <div className="py-8 text-center">Loading…</div>
+                                        ) : (
+                                          <>
+                                            <div className="flex items-center gap-2 mb-2">
+                                              <label className="text-xs font-semibold">Filter by Type:</label>
+                                              <select
+                                                className="border rounded px-2 py-1 text-xs"
+                                                value={manualPickType}
+                                                onChange={e => setManualPickType(e.target.value)}
+                                              >
+                                                <option value="">All</option>
+                                                {[...new Set(manualPickList.map(q => q.type || q.TYPE || q.type_letter || q.excel_type).filter(Boolean))].map(type => (
+                                                  <option key={type} value={type}>{type}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                            <div className="max-h-[60vh] overflow-y-auto">
+                                              <table className="w-full text-xs border">
+                                                <thead>
+                                                  <tr className="bg-muted">
+                                                    <th className="p-2 border">Qn No.</th>
+                                                    <th className="p-2 border">Text</th>
+                                                    <th className="p-2 border">CO</th>
+                                                    <th className="p-2 border">Type</th>
+                                                    <th className="p-2 border">BTL</th>
+                                                    <th className="p-2 border">Marks</th>
+                                                    <th className="p-2 border">Image</th>
+                                                    <th className="p-2 border"></th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {manualPickList
+                                                    .filter(q => !manualPickType || (q.type || q.TYPE || q.type_letter || q.excel_type) === manualPickType)
+                                                    .map((q, i) => (
+                                                      <tr key={q.id || i} className="border-b hover:bg-accent">
+                                                        <td className="p-2 border">{
+                                                          Number.isInteger(q.qn_number) ? q.qn_number :
+                                                          Number.isInteger(q.qn_no) ? q.qn_no :
+                                                          Number.isInteger(q.number) ? q.number :
+                                                          (Number.isInteger(Number(q.id)) && !isNaN(Number(q.id))) ? Number(q.id) :
+                                                          i+1
+                                                        }</td>
+                                                        <td className="p-2 border max-w-xs truncate" title={q.question_text}>{q.question_text}</td>
+                                                        <td className="p-2 border">{q.course_outcomes || q.co}</td>
+                                                        <td className="p-2 border">{q.type || q.TYPE || q.type_letter || q.excel_type}</td>
+                                                        <td className="p-2 border">{q.btl}</td>
+                                                        <td className="p-2 border">{q.marks}</td>
+                                                        <td className="p-2 border">
+                                                          {q.image_url ? (
+                                                            <img src={q.image_url} alt="Qn" style={{ maxWidth: 60, maxHeight: 60, borderRadius: 4 }} />
+                                                          ) : null}
+                                                        </td>
+                                                        <td className="p-2 border"><Button size="sm" onClick={()=>pickManualQuestion(q)}>Pick</Button></td>
+                                                      </tr>
+                                                    ))}
+                                                  {manualPickList.filter(q => !manualPickType || (q.type || q.TYPE || q.type_letter || q.excel_type) === manualPickType).length === 0 && (
+                                                    <tr><td colSpan={8} className="text-center p-4">No questions found in bank</td></tr>
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </>
+                                        )}
+                                      </DialogContent>
+                                    </Dialog>
+                              {q.baseNumber === 16 && q.type && (
+                                <span className="text-xs text-blue-700 font-bold">Type: {q.type === 'Part_C' ? 'Part C' : q.type}</span>
+                              )}
                               {(imageSrcs2[q.id] || q.image_url) ? (
                                 <div>
                                   <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4 }} />
@@ -1056,13 +1240,21 @@ const GeneratePaper = () => {
               </div>
             </div>
           )}
+          {/* Pagination controls */}
+          {generatedQuestions1.length > 0 && (
+  <div className="flex justify-center items-center gap-2 mt-4">
+    <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.max(1, p - 1))} disabled={questionsPage === 1}>Prev</Button>
+    <span>Page {questionsPage} of {totalQuestionsPages}</span>
+    <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.min(totalQuestionsPages, p + 1))} disabled={questionsPage === totalQuestionsPages}>Next</Button>
+  </div>
+)}
 
         </div>
       </main>
       {showVerifiedPopup && (
         <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-green-600/90 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2 animate-[fadeIn_.2s_ease-out]">
-            <span className="inline-block w-5 h-5 rounded-full bg-white text-green-600 flex items-center justify-center">✓</span>
+            <span className="w-5 h-5 rounded-full bg-white text-green-600 flex items-center justify-center">✓</span>
             <span>No duplicates detected</span>
           </div>
         </div>
