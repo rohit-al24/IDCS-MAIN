@@ -164,6 +164,7 @@ async def generate_docx(
     excel_meta: str = Form(None),
     ocr_images: Optional[str] = Form(None),
     title_image_url: Optional[str] = Form(None),
+    header_logo_url: Optional[str] = Form(None),
 ):
     from docx import Document
     from docx.shared import Pt, Inches
@@ -211,7 +212,7 @@ async def generate_docx(
 
     doc = Document()
 
-    # Place a full-width image banner at the top if provided
+      # Insert banner image above semester line if provided
     logo_url = title_image_url if title_image_url else None
     if logo_url and isinstance(logo_url, str) and logo_url.strip():
         try:
@@ -253,6 +254,36 @@ async def generate_docx(
         return p
 
 
+
+    # If a compact header logo is provided, render exam title centered with logo at right
+    if header_logo_url and isinstance(header_logo_url, str) and header_logo_url.strip():
+        try:
+            tbl = doc.add_table(rows=1, cols=2)
+            tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+            tbl.autofit = True
+            # Title cell (left, centered)
+            c_title = tbl.rows[0].cells[0]
+            p_title = c_title.paragraphs[0]
+            run_title = p_title.add_run((exam_title or "").strip() or "MODEL EXAM")
+            run_title.bold = True
+            run_title.font.size = Pt(20)
+            run_title.underline = True
+            p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            # Logo cell (right-aligned)
+            c_logo = tbl.rows[0].cells[1]
+            if header_logo_url.startswith('data:image/'):
+                header, b64data = header_logo_url.split(',', 1)
+                img_bytes = base64.b64decode(b64data)
+                stream = BytesIO(img_bytes)
+                c_logo.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
+            elif header_logo_url.startswith('http://') or header_logo_url.startswith('https://'):
+                resp = requests.get(header_logo_url, timeout=5)
+                if resp.ok:
+                    stream = BytesIO(resp.content)
+                    c_logo.paragraphs[0].add_run().add_picture(stream, width=Inches(1.5))
+            c_logo.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        except Exception:
+            logger.exception("Failed to insert header logo; falling back to text-only title")
 
     # (Banner already placed above; continue with course/meta lines)
     add_line(sem_word, True, 11, italic=True)
