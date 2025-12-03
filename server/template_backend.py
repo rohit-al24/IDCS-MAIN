@@ -224,12 +224,12 @@ async def generate_docx(
                 header, b64data = logo_url.split(',', 1)
                 img_bytes = base64.b64decode(b64data)
                 stream = BytesIO(img_bytes)
-                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+                banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
             elif logo_url.startswith('http://') or logo_url.startswith('https://'):
                 resp = requests.get(logo_url, timeout=5)
                 if resp.ok:
                     stream = BytesIO(resp.content)
-                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6.5))
+                    banner_cell.paragraphs[0].add_run().add_picture(stream, width=Inches(6))
             banner_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         except Exception:
             logger.exception("Failed to insert banner image; continuing without it")
@@ -313,13 +313,27 @@ async def generate_docx(
 
    
     # PART-A
-    add_bold_line("PART- A         (10 x 2 = 20 Marks)", True, 12)
+    # Create a header row above the main table for "PART- A" (center) and "(10 x 2 = 20 Marks)" (right)
+    header_tbl = doc.add_table(rows=1, cols=5)
+    header_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    header_tbl.autofit = False
+    # Merge cells for "PART- A" (centered above Q.No. and Answer ALL Questions)
+    header_tbl.rows[0].cells[0].merge(header_tbl.rows[0].cells[1])
+    p_part_a = header_tbl.rows[0].cells[0].paragraphs[0]
+    p_part_a.add_run("PART- A").bold = True
+    p_part_a.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Merge cells for "(10 x 2 = 20 Marks)" (right above CO, BTL, Marks)
+    header_tbl.rows[0].cells[2].merge(header_tbl.rows[0].cells[4])
+    p_marks = header_tbl.rows[0].cells[2].paragraphs[0]
+    p_marks.add_run("(10 x 2 = 20 Marks)").bold = True
+    p_marks.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
     table_a = doc.add_table(rows=1, cols=5)
     table_a.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_a.autofit = False
     hdr_cells = table_a.rows[0].cells
     hdr_cells[0].text = "Q.No."
-    hdr_cells[1].text = "Answer ALL\nQuestions"
+    hdr_cells[1].text = "Answer ALL Questions"
     hdr_cells[2].text = "CO"
     hdr_cells[3].text = "BTL"
     hdr_cells[4].text = "Marks"
@@ -331,7 +345,7 @@ async def generate_docx(
             row.cells[i].width = w
     for c in hdr_cells:
         for p in c.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for r in p.runs:
                 r.bold = True
 
@@ -589,7 +603,7 @@ async def generate_docx(
         row_a = table_b.add_row().cells
         for i, w in enumerate(widths_b):
             row_a[i].width = w
-        row_a[0].text = f"{base_no} A"
+        row_a[0].text = f"{base_no} a"
         p_a = row_a[1].paragraphs[0]
         p_a.paragraph_format.left_indent = Inches(0.0)
         if qa:
@@ -647,7 +661,7 @@ async def generate_docx(
         row_b = table_b.add_row().cells
         for i, w in enumerate(widths_b):
             row_b[i].width = w
-        row_b[0].text = f"{base_no} B"
+        row_b[0].text = f"{base_no} b"
         p_b = row_b[1].paragraphs[0]
         p_b.paragraph_format.left_indent = Inches(0.0)
         if qb:
@@ -692,6 +706,133 @@ async def generate_docx(
         for p in (
             row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs
         ):
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # PART-C (optional single question worth 10 marks)
+    c_questions = [q for q in _questions if isinstance(q, dict) and (
+        str(q.get('part','')).upper() == 'C' or
+        str(q.get('baseNumber','')).strip() == '16' or
+        str(q.get('number','')).strip().startswith('16')
+    )]
+    if c_questions:
+        add_bold_line("PART - C         (1 x 10 = 10 Marks)", True, 12)
+        table_c = doc.add_table(rows=1, cols=5)
+        table_c.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table_c.autofit = False
+        hdr_cells = table_c.rows[0].cells
+        hdr_cells[0].text = "Q.No."
+        hdr_cells[1].text = "Question"
+        hdr_cells[2].text = "CO"
+        hdr_cells[3].text = "BTL"
+        hdr_cells[4].text = "Marks"
+        for c in hdr_cells:
+            for p in c.paragraphs:
+                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                for r in p.runs:
+                    r.bold = True
+        widths_c = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+        for i, w in enumerate(widths_c):
+            for row in table_c.rows:
+                row.cells[i].width = w
+        # render Part C as an (a) / (OR) / (b) block (lowercase a/b)
+        qa = None
+        qb = None
+        if len(c_questions) >= 2:
+            try:
+                pair_sorted = sorted(c_questions, key=lambda q: str(q.get('sub','')))
+            except Exception:
+                pair_sorted = c_questions[:2]
+            qa, qb = pair_sorted[0], pair_sorted[1]
+        else:
+            qa = c_questions[0]
+
+        base_no = _first_non_empty(qa if qa else (qb or {}), ['baseNumber','number']) or '16'
+
+        # (a) row
+        row_a = table_c.add_row().cells
+        for i, w in enumerate(widths_c):
+            row_a[i].width = w
+        row_a[0].text = f"{base_no} a"
+        p_a = row_a[1].paragraphs[0]
+        p_a.paragraph_format.left_indent = Inches(0.0)
+        if qa:
+            p_a.add_run(_first_non_empty(qa, ['text','question_text','question','q','title','body','content']))
+            img_url = qa.get('image_url')
+            if img_url:
+                try:
+                    do_ocr = bool(qa.get('image_ocr'))
+                    if do_ocr and isinstance(img_url, str) and img_url.startswith('data:image/'):
+                        ocr_text = _ocr_data_url(img_url)
+                        if ocr_text:
+                            p_a.add_run("\n" + ocr_text)
+                            logger.info("Inserted OCR text for PART-C (a) %s", base_no)
+                            raise StopIteration
+                    if img_url.startswith('data:image/'):
+                        header, b64data = img_url.split(',', 1)
+                        img_bytes = base64.b64decode(b64data)
+                        img_stream = BytesIO(img_bytes)
+                        p_a.add_run().add_picture(img_stream, width=Inches(2.5))
+                    elif img_url.startswith('http'):
+                        resp = requests.get(img_url)
+                        if resp.ok:
+                            img_stream = BytesIO(resp.content)
+                            p_a.add_run().add_picture(img_stream, width=Inches(2.5))
+                except StopIteration:
+                    pass
+                except Exception:
+                    logger.exception("Failed to insert PART-C (a) image for %s, img_url=%s", base_no, img_url)
+                    p_a.add_run(" [Image error]")
+        row_a[2].text = _first_non_empty(qa or {}, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+        row_a[3].text = _first_non_empty(qa or {}, ['btl','bloom','bloom_level','bt','bt_level'])
+        row_a[4].text = _first_non_empty(qa or {}, ['marks','mark','score','points']) or '10'
+        for p in (row_a[0].paragraphs + row_a[2].paragraphs + row_a[3].paragraphs + row_a[4].paragraphs):
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # OR row (spanning all columns, centered)
+        or_row = table_c.add_row().cells
+        or_row[0].merge(or_row[-1])
+        p_or = or_row[0].paragraphs[0]
+        p_or.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_or.add_run("(OR)").bold = True
+
+        # (b) row
+        row_b = table_c.add_row().cells
+        for i, w in enumerate(widths_c):
+            row_b[i].width = w
+        row_b[0].text = f"{base_no} b"
+        p_b = row_b[1].paragraphs[0]
+        p_b.paragraph_format.left_indent = Inches(0.0)
+        if qb:
+            p_b.add_run(_first_non_empty(qb, ['text','question_text','question','q','title','body','content']))
+            img_url = qb.get('image_url')
+            if img_url:
+                try:
+                    do_ocr = bool(qb.get('image_ocr'))
+                    if do_ocr and isinstance(img_url, str) and img_url.startswith('data:image/'):
+                        ocr_text = _ocr_data_url(img_url)
+                        if ocr_text:
+                            p_b.add_run("\n" + ocr_text)
+                            logger.info("Inserted OCR text for PART-C (b) %s", base_no)
+                            raise StopIteration
+                    if img_url.startswith('data:image/'):
+                        header, b64data = img_url.split(',', 1)
+                        img_bytes = base64.b64decode(b64data)
+                        img_stream = BytesIO(img_bytes)
+                        p_b.add_run().add_picture(img_stream, width=Inches(2.5))
+                    elif img_url.startswith('http'):
+                        resp = requests.get(img_url)
+                        if resp.ok:
+                            img_stream = BytesIO(resp.content)
+                            p_b.add_run().add_picture(img_stream, width=Inches(2.5))
+                except StopIteration:
+                    pass
+                except Exception:
+                    logger.exception("Failed to insert PART-C (b) image for %s, img_url=%s", base_no, img_url)
+                    p_b.add_run(" [Image error]")
+        row_b[2].text = _first_non_empty(qb or {}, ['co','course_outcomes','courseOutcome','course_outcome','co_code'])
+        row_b[3].text = _first_non_empty(qb or {}, ['btl','bloom','bloom_level','bt','bt_level'])
+        row_b[4].text = _first_non_empty(qb or {}, ['marks','mark','score','points']) or '10'
+        for p in (row_b[0].paragraphs + row_b[2].paragraphs + row_b[3].paragraphs + row_b[4].paragraphs):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(" ")
     doc.add_paragraph("******************").bold = True
