@@ -198,14 +198,14 @@ const GeneratePaper = () => {
     semester: "Second Semester",
   });
   const departmentOptions = [
-    "CSE",
-    "IT",
-    "ECE",
-    "EEE",
-    "CIVIL",
-    "MECH",
-    "AI&DS",
-    "AI&ML",
+    "Computer Science and Engineering",
+    "Information Technology",
+    "Electronics and Communication Engineering",
+    "Electrical and Electronics Engineering",
+    "Civil Engineering",
+    "Mechanical Engineering",
+    "Artificial Intelligence and Data Science",
+    "Artificial Intelligence and Machine Learning",
   ];
   const semesterOptions = [
     "First Semester",
