@@ -17,17 +17,24 @@ import NotFound from "./pages/NotFound";
 import TemplateUploadPage from "./pages/TemplateUploadPage";
 import ManageQuestionsPage from "./pages/ManageQuestionsPage";
 import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import * as XLSX from "xlsx";
+import SplashOverlay from "./components/SplashOverlay";
 
 const queryClient = new QueryClient();
 
 const BANNER_TEXT = "Exam Paper Banner";
 
-
 function App() {
+  // Splash screen state and auto-hide effect
+  const [showSplash, setShowSplash] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -38,9 +45,38 @@ function App() {
             <div className="flex min-h-screen w-full">
               <Sidebar side="left" collapsible="offcanvas">
                 <SidebarHeader>
-                  <div className="bg-primary flex items-center gap-4 px-6 py-6 rounded-b-2xl shadow-lg drop-shadow-lg">
-                    <span className="text-4xl font-extrabold text-primary-foreground tracking-wide drop-shadow">IDCS KR</span>
+                  <div
+                    className="flex items-center gap-4 px-6 py-6 rounded-t-2xl rounded-b-md shadow-lg drop-shadow-lg"
+                    style={{
+                      background: "linear-gradient(90deg, #7F7FD5 0%, #86A8E7 35%, #91EAE4 100%)",
+                      boxShadow: "0 4px 24px 0 rgba(145,234,228,0.25), 0 1.5px 8px 0 rgba(134,168,231,0.15)"
+                    }}
+                  >
+                    <span
+                      className="text-4xl font-extrabold tracking-wide drop-shadow animate-text-glow"
+                      style={{
+                        color: "white",
+                        letterSpacing: "0.05em",
+                        textShadow: "0 0 12px #86A8E7, 0 0 24px #91EAE4, 0 0 32px #7F7FD5"
+                      }}
+                    >
+                      IDCS KR
+                    </span>
                   </div>
+                  <style>
+                    {`
+                      @keyframes glow {
+                        0% {
+                          text-shadow: 0 0 12px #86A8E7, 0 0 24px #91EAE4, 0 0 32px #7F7FD5;
+                          filter: brightness(1.1);
+                        }
+                        100% {
+                          text-shadow: 0 0 32px #ffaf7b, 0 0 48px #d76d77, 0 0 64px #3a1c71;
+                          filter: brightness(1.3);
+                        }
+                      }
+                    `}
+                  </style>
                 </SidebarHeader>
                 <SidebarContent>
                   <SidebarGroup>
@@ -97,8 +133,11 @@ function App() {
                       </SidebarMenuItem>
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/review-template" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <Shield className="w-5 h-5" />Review Template
+                          <NavLink to="/auth" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20h6M3 20h5v-2a4 4 0 00-3-3.87M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            Authentication
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -115,6 +154,13 @@ function App() {
                 <SidebarSeparator />
               </Sidebar>
               <main className="flex-1 min-w-0 overflow-auto">
+                {/* Splash overlay rendered on top */}
+                {showSplash && (
+                  <div className="fixed inset-0 z-[9999] bg-white">
+                    <SplashOverlay onDone={() => setShowSplash(false)} />
+                  </div>
+                )}
+
                 <Routes>
                   <Route path="/" element={<Index />} />
                   <Route path="/login" element={<Login />} />
