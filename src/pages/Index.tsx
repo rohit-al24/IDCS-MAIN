@@ -25,7 +25,15 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background">
       <nav className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-primary">KR Question Generator</h1>
+            <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
+              IDCS QPG  
+              <span
+              className="ml-2 text-red-600 bg-red-100 px-2 py-0.5 rounded shadow-md font-extrabold"
+              style={{ boxShadow: "0 0 8px 2px rgba(220,38,38,0.25)" }}
+              >
+                2.0
+              </span>
+            </h1>
           <Button onClick={() => navigate("/login")}>Login</Button>
         </div>
       </nav>
@@ -81,39 +89,64 @@ const Index = () => {
           <h2 className="text-5xl font-bold mb-6 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             Question Paper Generator
           </h2>
-          <p className="text-xl text-muted-foreground mb-8">
-            Upload your question bank, select a template, and generate complete exam papers with answer keys in seconds.
-          </p>
-          <Button size="lg" onClick={() => navigate("/login") } className="text-lg px-8">
-            Get Started
-          </Button>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-          <div className="bg-card p-6 rounded-xl border shadow-md hover:shadow-lg transition-shadow">
-            <FileUp className="w-12 h-12 text-primary mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Upload Question Bank</h3>
-            <p className="text-muted-foreground">Import questions from CSV, Excel, PDF, or TXT files with automatic parsing.</p>
-          </div>
-
-          <div className="bg-card p-6 rounded-xl border shadow-md hover:shadow-lg transition-shadow">
-            <Shield className="w-12 h-12 text-accent mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Verify Questions</h3>
-            <p className="text-muted-foreground">Review and validate each question with easy verification tools.</p>
-          </div>
-
-          <div className="bg-card p-6 rounded-xl border shadow-md hover:shadow-lg transition-shadow">
-            <FileText className="w-12 h-12 text-secondary mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Manage Templates</h3>
-            <p className="text-muted-foreground">Create custom exam templates with sections, marks, and difficulty distribution.</p>
-          </div>
-
-          <div className="bg-card p-6 rounded-xl border shadow-md hover:shadow-lg transition-shadow">
-            <Wand2 className="w-12 h-12 text-warning mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Auto Generate</h3>
-            <p className="text-muted-foreground">Generate randomized question papers with answer keys instantly.</p>
-          </div>
+          {[
+            {
+              icon: <FileUp className="w-8 h-8 text-primary mb-2" />,
+              title: "Upload Question Bank",
+              desc: "Import questions from CSV, Excel, PDF, or TXT files with automatic parsing.",
+            },
+            {
+              icon: <Shield className="w-8 h-8 text-accent mb-2" />,
+              title: "Verify Questions",
+              desc: "Review and validate each question with easy verification tools.",
+            },
+            {
+              icon: <FileText className="w-8 h-8 text-secondary mb-2" />,
+              title: "Manage Templates",
+              desc: "Create custom exam templates with sections, marks, and difficulty distribution.",
+            },
+            {
+              icon: <Wand2 className="w-8 h-8 text-warning mb-2" />,
+              title: "Auto Generate",
+              desc: "Generate randomized question papers with answer keys instantly.",
+            },
+          ].map((item, i) => (
+            <div
+              key={item.title}
+              className="bg-card p-4 rounded-lg border shadow-md hover:shadow-lg transition-shadow
+          animate-fade-in-up"
+              style={{
+          animationDelay: `${i * 0.15 + 0.1}s`,
+          animationDuration: "0.7s",
+          animationFillMode: "both",
+              }}
+            >
+              {item.icon}
+              <h3 className="text-lg font-semibold mb-1">{item.title}</h3>
+              <p className="text-sm text-muted-foreground">{item.desc}</p>
+            </div>
+          ))}
         </div>
+        <style>
+          {`
+            @keyframes fade-in-up {
+              0% {
+          opacity: 0;
+          transform: translateY(20px) scale(0.95);
+              }
+              100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+              }
+            }
+            .animate-fade-in-up {
+              animation-name: fade-in-up;
+            }
+          `}
+        </style>
       </main>
     </div>
   );

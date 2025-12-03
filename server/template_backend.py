@@ -298,35 +298,55 @@ async def generate_docx(
     add_bold_line(display_course, True, 12)
     add_line(f"({regulation})", True, 11)
 
-    # Time and Maximum Marks on same line, left-aligned, with spacing
-    p_tm = doc.add_paragraph()
-    r_tm = p_tm.add_run("Time: Three Hours")
-    r_tm.font.size = Pt(11)
-    # Add enough spaces to separate
-    r_tm2 = p_tm.add_run("")
-    r_tm2.font.size = Pt(11)
-    # Use tab for better alignment
-    p_tm.add_run("\t").font.size = Pt(11)
-    r_tm3 = p_tm.add_run("Maximum Marks: 100 Marks")
-    r_tm3.font.size = Pt(11)
-    p_tm.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Time and Maximum Marks on same line, using a table for left/right alignment
+    meta_tbl = doc.add_table(rows=1, cols=2)
+    meta_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    meta_tbl.autofit = True
+    meta_tbl.allow_autofit = True
+    # Left cell: Time
+    p_time = meta_tbl.cell(0,0).paragraphs[0]
+    run_time = p_time.add_run("Time: Three Hours")
+    run_time.font.size = Pt(11)
+    p_time.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Right cell: Maximum Marks
+    p_marks = meta_tbl.cell(0,1).paragraphs[0]
+    run_marks = p_marks.add_run("Maximum Marks: 100 Marks")
+    run_marks.font.size = Pt(11)
+    p_marks.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    try:
+        meta_tbl.columns[0].width = Inches(3.2)
+        meta_tbl.columns[1].width = Inches(3.6)
+    except Exception:
+        pass
 
    
-    # PART-A
-    # Create a header row above the main table for "PART- A" (center) and "(10 x 2 = 20 Marks)" (right)
-    header_tbl = doc.add_table(rows=1, cols=5)
-    header_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-    header_tbl.autofit = False
-    # Merge cells for "PART- A" (centered above Q.No. and Answer ALL Questions)
-    header_tbl.rows[0].cells[0].merge(header_tbl.rows[0].cells[1])
-    p_part_a = header_tbl.rows[0].cells[0].paragraphs[0]
-    p_part_a.add_run("PART- A").bold = True
-    p_part_a.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    # Merge cells for "(10 x 2 = 20 Marks)" (right above CO, BTL, Marks)
-    header_tbl.rows[0].cells[2].merge(header_tbl.rows[0].cells[4])
-    p_marks = header_tbl.rows[0].cells[2].paragraphs[0]
-    p_marks.add_run("(10 x 2 = 20 Marks)").bold = True
-    p_marks.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+    # PART-A title and marks in a single row using a table for alignment
+    parta_tbl = doc.add_table(rows=1, cols=3)
+    parta_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    parta_tbl.autofit = True
+    parta_tbl.allow_autofit = True
+    # Left cell empty
+    parta_tbl.cell(0,0).text = ""
+    # Center cell: PART- A
+    p_center = parta_tbl.cell(0,1).paragraphs[0]
+    run_center = p_center.add_run("PART- A")
+    run_center.bold = True
+    run_center.font.size = Pt(12)
+    p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Right cell: (10 x 2 = 20 Marks)
+    p_right = parta_tbl.cell(0,2).paragraphs[0]
+    run_right = p_right.add_run("(10 x 2 = 20 Marks)")
+    run_right.bold = True
+    run_right.font.size = Pt(12)
+    p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    # Set column widths for better layout
+    try:
+        parta_tbl.columns[0].width = Inches(1.2)
+        parta_tbl.columns[1].width = Inches(3.2)
+        parta_tbl.columns[2].width = Inches(2.2)
+    except Exception:
+        pass
 
     table_a = doc.add_table(rows=1, cols=5)
     table_a.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -338,16 +358,20 @@ async def generate_docx(
     hdr_cells[3].text = "BTL"
     hdr_cells[4].text = "Marks"
     # Column widths
-    widths_a = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
-    widths_b = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
-    for i, w in enumerate(widths_b):
+    widths_a = [Inches(0.5), Inches(5), Inches(0.5), Inches(0.6), Inches(0.6)]
+    for i, w in enumerate(widths_a):
         for row in table_a.rows:
             row.cells[i].width = w
+    # Align header columns: Q.No., CO, BTL, Marks centered; Answer ALL left
+    hdr_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[1].paragraphs[0].paragraph_format.left_indent = Inches(1)
+    hdr_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[4].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
     for c in hdr_cells:
-        for p in c.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for r in p.runs:
-                r.bold = True
+        for r in c.paragraphs[0].runs:
+            r.bold = True
 
     # Normalize incoming questions to dicts
     import json, random
@@ -557,27 +581,53 @@ async def generate_docx(
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         idx += 1
-    # PART-B
-    add_bold_line("PART – B                          (5 x 16 = 80 Marks)", True, 12)
+    # PART-B title and marks in a single row using a table for alignment
+    partb_tbl = doc.add_table(rows=1, cols=3)
+    partb_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    partb_tbl.autofit = True
+    partb_tbl.allow_autofit = True
+    partb_tbl.cell(0,0).text = ""
+    p_center_b = partb_tbl.cell(0,1).paragraphs[0]
+    run_center_b = p_center_b.add_run("PART- B")
+    run_center_b.bold = True
+    run_center_b.font.size = Pt(12)
+    p_center_b.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_right_b = partb_tbl.cell(0,2).paragraphs[0]
+    run_right_b = p_right_b.add_run("(5 x 16 = 80 Marks)")
+    run_right_b.bold = True
+    run_right_b.font.size = Pt(12)
+    p_right_b.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    try:
+        partb_tbl.columns[0].width = Inches(1.2)
+        partb_tbl.columns[1].width = Inches(3.2)
+        partb_tbl.columns[2].width = Inches(2.2)
+    except Exception:
+        pass
+
     table_b = doc.add_table(rows=1, cols=5)
     table_b.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_b.autofit = False
     table_b.left_indent = Inches(0.1)
     hdr_cells = table_b.rows[0].cells
     hdr_cells[0].text = "Q.No."
-    hdr_cells[1].text = "Question"
+    hdr_cells[1].text = "Answer All Questions"
     hdr_cells[2].text = "CO"
     hdr_cells[3].text = "BTL"
     hdr_cells[4].text = "Marks"
-    for c in hdr_cells:
-        for p in c.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            for r in p.runs:
-                r.bold = True
-    widths_b = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+    # Apply same header widths/alignment as Part A
+    widths_b = [Inches(0.5), Inches(5), Inches(0.5), Inches(0.6), Inches(0.6)]
     for i, w in enumerate(widths_b):
         for row in table_b.rows:
             row.cells[i].width = w
+    hdr_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[1].paragraphs[0].paragraph_format.left_indent = Inches(1)
+    hdr_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hdr_cells[4].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for c in hdr_cells:
+        for r in c.paragraphs[0].runs:
+            r.bold = True
     # Render Part B with (a), OR row, (b) for each pair
     b_pairs = []
     temp_pair = []
@@ -715,25 +765,51 @@ async def generate_docx(
         str(q.get('number','')).strip().startswith('16')
     )]
     if c_questions:
-        add_bold_line("PART - C         (1 x 10 = 10 Marks)", True, 12)
+        partc_tbl = doc.add_table(rows=1, cols=3)
+        partc_tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+        partc_tbl.autofit = True
+        partc_tbl.allow_autofit = True
+        partc_tbl.cell(0,0).text = ""
+        p_center_c = partc_tbl.cell(0,1).paragraphs[0]
+        run_center_c = p_center_c.add_run("PART- C")
+        run_center_c.bold = True
+        run_center_c.font.size = Pt(12)
+        p_center_c.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right_c = partc_tbl.cell(0,2).paragraphs[0]
+        run_right_c = p_right_c.add_run("    (1 x 10 = 10 Marks)")
+        run_right_c.bold = True
+        run_right_c.font.size = Pt(12)
+        p_right_c.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        try:
+            partc_tbl.columns[0].width = Inches(1.2)
+            partc_tbl.columns[1].width = Inches(3.2)
+            partc_tbl.columns[2].width = Inches(2.2)
+        except Exception:
+            pass
+
         table_c = doc.add_table(rows=1, cols=5)
         table_c.alignment = WD_TABLE_ALIGNMENT.CENTER
         table_c.autofit = False
         hdr_cells = table_c.rows[0].cells
         hdr_cells[0].text = "Q.No."
-        hdr_cells[1].text = "Question"
+        hdr_cells[1].text = "Answer All Questions"
         hdr_cells[2].text = "CO"
         hdr_cells[3].text = "BTL"
         hdr_cells[4].text = "Marks"
-        for c in hdr_cells:
-            for p in c.paragraphs:
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                for r in p.runs:
-                    r.bold = True
-        widths_c = [Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+        # Apply same header widths/alignment as Part A
+        widths_c = [Inches(0.5), Inches(5), Inches(0.5), Inches(0.6), Inches(0.6)]
         for i, w in enumerate(widths_c):
             for row in table_c.rows:
                 row.cells[i].width = w
+        hdr_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hdr_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hdr_cells[1].paragraphs[0].paragraph_format.left_indent = Inches(1)
+        hdr_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hdr_cells[3].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hdr_cells[4].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for c in hdr_cells:
+            for r in c.paragraphs[0].runs:
+                r.bold = True
         # render Part C as an (a) / (OR) / (b) block (lowercase a/b)
         qa = None
         qb = None

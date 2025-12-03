@@ -224,6 +224,8 @@ const GeneratePaper = () => {
   const [lastTemplate, setLastTemplate] = useState<Template | null>(null);
   const [checking, setChecking] = useState<boolean>(false);
   const [showVerifiedPopup, setShowVerifiedPopup] = useState<boolean>(false);
+  // Full-screen preview dialog state
+  const [expandedOpen, setExpandedOpen] = useState<boolean>(false);
 
   // --- Image hooks must be at the top level ---
   const imageSrcs1 = useQuestionImages(generatedQuestions1);
@@ -1213,10 +1215,11 @@ const GeneratePaper = () => {
               </Card>
             )}
             {isGenerated && (
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-3">
               <Button variant="secondary" onClick={checkDuplicates} disabled={checking}>
                 {checking ? 'Checking…' : 'Check Duplicate'}
               </Button>
+              <Button variant="outline" onClick={()=>setExpandedOpen(true)}>Expand</Button>
             </div>
           )}
             
@@ -1322,7 +1325,7 @@ const GeneratePaper = () => {
                               </div>
                                     {/* Manual Pick Dialog */}
                                     <Dialog open={manualPick.open} onOpenChange={v=>setManualPick(p=>({...p, open:v}))}>
-                                      <DialogContent className="max-w-3xl">
+                                      <DialogContent className="max-w-[95vw] w-[1200px]">
                                         <DialogHeader>
                                           <DialogTitle>Pick Question from Bank</DialogTitle>
                                         </DialogHeader>
@@ -1343,7 +1346,7 @@ const GeneratePaper = () => {
                                                 ))}
                                               </select>
                                             </div>
-                                            <div className="max-h-[60vh] overflow-y-auto">
+                                            <div className="max-h-[70vh] overflow-auto">
                                               <table className="w-full text-xs border">
                                                 <thead>
                                                   <tr className="bg-muted">
@@ -1370,7 +1373,11 @@ const GeneratePaper = () => {
                                                           (Number.isInteger(Number(q.id)) && !isNaN(Number(q.id))) ? Number(q.id) :
                                                           i+1
                                                         }</td>
-                                                        <td className="p-2 border max-w-xs truncate" title={q.question_text}>{q.question_text}</td>
+                                                        <td className="p-2 border whitespace-pre-wrap break-words text-sm" style={{minWidth: 400}}>
+                                                          {String(q.question_text || '').split(/\n+/).map((ln, idx) => (
+                                                            <p key={idx} className="mb-1">{ln}</p>
+                                                          ))}
+                                                        </td>
                                                         <td className="p-2 border">{getCoText(q)}</td>
                                                         <td className="p-2 border">{q.type || q.TYPE || q.type_letter || q.excel_type}</td>
                                                         <td className="p-2 border">{q.btl}</td>
@@ -1457,6 +1464,75 @@ const GeneratePaper = () => {
 
         </div>
       </main>
+      {/* Full-screen preview dialog */}
+      <Dialog open={expandedOpen} onOpenChange={setExpandedOpen}>
+        <DialogContent className="max-w-[95vw] w-[1200px]">
+          <DialogHeader>
+            <DialogTitle>Full Preview</DialogTitle>
+          </DialogHeader>
+          <div className="flex justify-end mb-3">
+            <Button variant="secondary" onClick={checkDuplicates} disabled={checking}>
+              {checking ? 'Checking…' : 'Check Duplicate'}
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[70vh] overflow-auto">
+            {/* Copy 1 preview */}
+            <div className="space-y-3">
+              <div className="bg-muted p-3 rounded">
+                <p className="font-semibold">Copy 1 • Total: {generatedQuestions1.length}</p>
+                <p className="text-sm">Objective: {generatedQuestions1.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions1.filter((q:any)=> q.type==='descriptive' || q.type==='Part_C').length}</p>
+              </div>
+              <div className="space-y-2">
+                {generatedQuestions1.map((q:any, idx:number)=> {
+                  const isDup = dups1.has(q.id||`${q.baseNumber}.${q.sub||''}`);
+                  return (
+                  <div key={`c1-${idx}`} className={`border rounded p-3 ${isDup ? 'bg-yellow-50 border-yellow-400' : ''}`}>
+                    <div className="text-sm">
+                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl?` • BTL ${q.btl}`:''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
+                    </div>
+                    {(imageSrcs1[q.id] || q.image_url) && (
+                      <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4, marginTop: 8 }} />
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" variant="outline" onClick={()=>openManualPick(1, idx)}>Pick Manually</Button>
+                      {isDup && (
+                        <Button size="sm" variant="outline" onClick={()=>replaceDuplicate(1, q)}>Replace with random</Button>
+                      )}
+                    </div>
+                  </div>
+                )})}
+              </div>
+            </div>
+            {/* Copy 2 preview */}
+            <div className="space-y-3">
+              <div className="bg-muted p-3 rounded">
+                <p className="font-semibold">Copy 2 • Total: {generatedQuestions2.length}</p>
+                <p className="text-sm">Objective: {generatedQuestions2.filter((q:any)=>q.type==='objective').length} | Descriptive: {generatedQuestions2.filter((q:any)=> q.type==='descriptive' || q.type==='Part_C').length}</p>
+              </div>
+              <div className="space-y-2">
+                {generatedQuestions2.map((q:any, idx:number)=> {
+                  const isDup = dups2.has(q.id||`${q.baseNumber}.${q.sub||''}`);
+                  return (
+                  <div key={`c2-${idx}`} className={`border rounded p-3 ${isDup ? 'bg-yellow-50 border-yellow-400' : ''}`}>
+                    <div className="text-sm">
+                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl?` • BTL ${q.btl}`:''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
+                    </div>
+                    {(imageSrcs2[q.id] || q.image_url) && (
+                      <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4, marginTop: 8 }} />
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" variant="outline" onClick={()=>openManualPick(2, idx)}>Pick Manually</Button>
+                      {isDup && (
+                        <Button size="sm" variant="outline" onClick={()=>replaceDuplicate(2, q)}>Replace with random</Button>
+                      )}
+                    </div>
+                  </div>
+                )})}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {showVerifiedPopup && (
         <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-green-600/90 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2 animate-[fadeIn_.2s_ease-out]">
