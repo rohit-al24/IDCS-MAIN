@@ -50,10 +50,12 @@ def open_browser_when_ready(url: str):
 
 def main():
     mount_frontend()
-    url = "http://127.0.0.1:5000"
+    # Allow overriding port via environment variable; default to 4000 for packaged exe
+    port = int(os.environ.get("PORT", "4000"))
+    url = f"http://127.0.0.1:{port}"
     open_browser_when_ready(url)
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5000)
+    uvicorn.run(app, host="127.0.0.1", port=port)
 
 
 if __name__ == "__main__":
