@@ -93,12 +93,19 @@ type Template = Tables<"templates">;
 type Question = Tables<"question_bank">;
 
 // Extend the Question type to include additional properties
-interface ExtendedQuestion extends Question {
+type ExtendedQuestion = Omit<Question, 'btl'> & {
   part?: string;
   baseNumber?: number;
   sub?: string;
-}
+  // allow btl to be string or number locally (DB may store either)
+  btl?: string | number | null;
+};
 
+// Always return the raw BTL string from DB (no transformation or prefix)
+function formatBtl(btl: any) {
+  if (btl === null || btl === undefined) return '';
+  return String(btl).trim();
+}
 const GeneratePaper = () => {
     // Helper: prefer Excel-style CO numbers text
     const getCoText = (q: any): string => {
@@ -112,7 +119,7 @@ const GeneratePaper = () => {
       if (m2 && m2.length) return Array.from(new Set(m2)).join(',');
       return co || '-';
     };
-    // --- Manual Pick State & Functions ---
+      // --- Manual Pick State & Functions --- 
     const [manualPick, setManualPick] = useState<{ open: boolean; copy: 1|2; qIdx: number|null }>({ open: false, copy: 1, qIdx: null });
     const [manualPickList, setManualPickList] = useState<any[]>([]);
     const [manualPickLoading, setManualPickLoading] = useState(false);
@@ -172,13 +179,17 @@ const GeneratePaper = () => {
         ));
       }
       setManualPick({ open: false, copy: 1, qIdx: null });
+      // Re-run duplicate check shortly after replacing a question so UI highlights duplicates correctly
+      setTimeout(() => {
+        try { checkDuplicates(); } catch (e) { /* ignore */ }
+      }, 60);
     };
   const navigate = useNavigate();
   const { toast } = useToast();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [generatedQuestions1, setGeneratedQuestions1] = useState<Question[]>([]);
-  const [generatedQuestions2, setGeneratedQuestions2] = useState<Question[]>([]);
+  const [generatedQuestions1, setGeneratedQuestions1] = useState<ExtendedQuestion[]>([]);
+  const [generatedQuestions2, setGeneratedQuestions2] = useState<ExtendedQuestion[]>([]);
   const [answerKey1, setAnswerKey1] = useState<{ questionNumber: number; answer: string }[]>([]);
   const [answerKey2, setAnswerKey2] = useState<{ questionNumber: number; answer: string }[]>([]);
   const [isGenerated, setIsGenerated] = useState(false);
@@ -187,6 +198,8 @@ const GeneratePaper = () => {
   const [questionBanks, setQuestionBanks] = useState<string[]>([]);
   const [selectedQuestionBank, setSelectedQuestionBank] = useState<string>("");
   const [questionBankSearch, setQuestionBankSearch] = useState<string>("");
+  // Use top-level `formatBtl` helper which returns the raw DB value
+
   // Document meta for DOCX generation (user provided)
   const [docMeta, setDocMeta] = useState({
     dept: "CSE",
@@ -391,7 +404,7 @@ const GeneratePaper = () => {
       }
       if (ok) { chosenBtl = b; break; }
     }
-    if (chosenBtl === null) {
+      const fetchQuestionBanks = async () => { 
       return { generated: [], answerKey: [], pickedIds };
     }
     const sectionA = (template.sections as any[]).find((s: any) => (s.name || '').toLowerCase().includes('section a'));
@@ -479,70 +492,70 @@ const GeneratePaper = () => {
       for (let pairIndex = 0; pairIndex < 5; pairIndex++) {
         const config = sectionBQuestions[pairIndex] || {};
         const baseNumber = startNumber + pairIndex;
-        const pool = verifiedQuestions.filter(q => {
-          const qco = ((q as any).course_outcomes || '').toString().trim().toLowerCase();
-          const coNorm = (config.co || 'CO1').toString().trim().toLowerCase();
-          const typeMatch = !config.type || q.type === config.type;
-          const coMatch = coNorm === 'random' ? true : (qco === coNorm);
-          const btlMatch = !config.btl || config.btl === 'random' || (String((q as any).btl) === String(config.btl).replace(/BTL/,'') ) || (String((q as any).btl) === String(config.btl));
-          const notUsed = !pickedIds.has(q.id);
-          const marksMatch = Number(q.marks) === Number(config.marks || 16);
-          return typeMatch && coMatch && btlMatch && notUsed && marksMatch;
-        });
-        let qa: any = null, qb: any = null;
-        // Enforce chapter-based selection: A -> chapter '1', B -> chapter '2'
-        const poolA = pool.filter(q => String(q.chapter) === '1');
-        const poolB = pool.filter(q => String(q.chapter) === '2');
+        // Desired CO and allowed BTLs per specification
+        const desiredCO = `CO${pairIndex + 1}`;
+        const allowedBtlsMap: Record<number, number[]> = { 0: [1,2,3], 1: [1,2,3], 2: [3,4,5,6], 3: [3,4,5,6], 4: [3,4,5,6] };
+        const allowedBtls = allowedBtlsMap[pairIndex] || [1,2,3];
+        const marksReq = Number(config.marks || 16);
+        const normalizeBTL = (v: any) => String(v || '').replace(/BTL\s*/i,'').trim();
+        const normalizeCO = (v: any) => String(v || '').toLowerCase().replace(/\s+/g,'');
 
-        if (poolA.length > 0 && poolB.length > 0) {
-          // Prefer matching BTL across the pair; if not possible, pick any from poolB
-          qa = poolA[Math.floor(Math.random() * poolA.length)];
-          const qaBTL = String((qa as any).btl);
-          const poolBMatching = poolB.filter(q => String((q as any).btl) === qaBTL);
-          if (poolBMatching.length > 0) qb = poolBMatching[Math.floor(Math.random() * poolBMatching.length)];
-          else qb = poolB[Math.floor(Math.random() * poolB.length)];
-          if (qa && qb) {
-            pickedIds.add(qa.id); pickedIds.add(qb.id);
-            (qa as any).co = (qa as any).course_outcomes; (qb as any).co = (qb as any).course_outcomes;
-            (qa as any).part = 'B'; (qb as any).part = 'B';
-            (qa as any).baseNumber = baseNumber; (qb as any).baseNumber = baseNumber;
-            (qa as any).sub = 'a'; (qb as any).sub = 'b';
-            (qa as any).or = false; (qb as any).or = true;
-            const marksToAssign = config.marks || 16;
-            (qa as any).marks = marksToAssign; (qb as any).marks = marksToAssign;
-            const btlValue = (qa as any).btl; (qb as any).btl = btlValue;
-            generated.push(qa as any); generated.push(qb as any);
+        const poolAAll = verifiedQuestions.filter(q => !pickedIds.has(q.id) && String(q.chapter) === '1' && Number(q.marks) === marksReq && normalizeCO((q as any).course_outcomes) === normalizeCO(desiredCO));
+        const poolBAll = verifiedQuestions.filter(q => !pickedIds.has(q.id) && String(q.chapter) === '2' && Number(q.marks) === marksReq && normalizeCO((q as any).course_outcomes) === normalizeCO(desiredCO));
+
+        let qa:any = null, qb:any = null;
+        // Try allowed BTLs in random order
+        const shuffled = [...allowedBtls].sort(() => Math.random()-0.5);
+        for (const b of shuffled) {
+          const bs = String(b);
+          const aCandidates = poolAAll.filter(q => normalizeBTL((q as any).btl) === bs);
+          const bCandidates = poolBAll.filter(q => normalizeBTL((q as any).btl) === bs);
+          if (aCandidates.length > 0 && bCandidates.length > 0) {
+            qa = aCandidates[Math.floor(Math.random()*aCandidates.length)];
+            qb = bCandidates[Math.floor(Math.random()*bCandidates.length)];
+            break;
           }
-        } else if (poolA.length > 0 && poolB.length === 0) {
-          // Only A available (chapter 1); insert A and placeholder for B
-          qa = poolA[Math.floor(Math.random() * poolA.length)];
-          (qa as any).co = (qa as any).course_outcomes;
-          (qa as any).part = 'B';
-          (qa as any).baseNumber = baseNumber;
-          (qa as any).sub = 'a';
-          (qa as any).or = false;
-          (qa as any).marks = config.marks || 16;
-          pickedIds.add(qa.id);
-          generated.push(qa as any);
-          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+        }
+        // If not found, try to find any common BTL present in both
+        if (!qa || !qb) {
+          const valsA = new Set(poolAAll.map(q => normalizeBTL((q as any).btl)));
+          const valsB = new Set(poolBAll.map(q => normalizeBTL((q as any).btl)));
+          const common = [...valsA].filter(v => valsB.has(v) && v !== '');
+          if (common.length > 0) {
+            const pick = common[Math.floor(Math.random()*common.length)];
+            const aCandidates = poolAAll.filter(q => normalizeBTL((q as any).btl) === pick);
+            const bCandidates = poolBAll.filter(q => normalizeBTL((q as any).btl) === pick);
+            qa = aCandidates[Math.floor(Math.random()*aCandidates.length)];
+            qb = bCandidates[Math.floor(Math.random()*bCandidates.length)];
+          }
+        }
+
+        if (qa && qb) {
+          pickedIds.add(qa.id); pickedIds.add(qb.id);
+          (qa as any).co = (qa as any).course_outcomes; (qb as any).co = (qb as any).course_outcomes;
+          (qa as any).part = 'B'; (qb as any).part = 'B';
+          (qa as any).baseNumber = baseNumber; (qb as any).baseNumber = baseNumber;
+          (qa as any).sub = 'a'; (qb as any).sub = 'b';
+          (qa as any).or = false; (qb as any).or = true;
+          (qa as any).marks = marksReq; (qb as any).marks = marksReq;
+          generated.push(qa as any); generated.push(qb as any);
+        } else if (poolAAll.length > 0 && poolBAll.length === 0) {
+          const qa2 = poolAAll[Math.floor(Math.random()*poolAAll.length)];
+          pickedIds.add(qa2.id);
+          (qa2 as any).co = (qa2 as any).course_outcomes; (qa2 as any).part = 'B'; (qa2 as any).baseNumber = baseNumber; (qa2 as any).sub = 'a'; (qa2 as any).or = false; (qa2 as any).marks = marksReq;
+          generated.push(qa2 as any);
+          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: marksReq, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
-        } else if (poolA.length === 0 && poolB.length > 0) {
-          // Only B available (chapter 2); insert placeholder for A and real B
-          qb = poolB[Math.floor(Math.random() * poolB.length)];
-          (qb as any).co = (qb as any).course_outcomes;
-          (qb as any).part = 'B';
-          (qb as any).baseNumber = baseNumber;
-          (qb as any).sub = 'b';
-          (qb as any).or = true;
-          (qb as any).marks = config.marks || 16;
-          pickedIds.add(qb.id);
-          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
-          generated.push(qb as any);
+        } else if (poolAAll.length === 0 && poolBAll.length > 0) {
+          const qb2 = poolBAll[Math.floor(Math.random()*poolBAll.length)];
+          pickedIds.add(qb2.id);
+          (qb2 as any).co = (qb2 as any).course_outcomes; (qb2 as any).part = 'B'; (qb2 as any).baseNumber = baseNumber; (qb2 as any).sub = 'b'; (qb2 as any).or = true; (qb2 as any).marks = marksReq;
+          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: marksReq, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          generated.push(qb2 as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         } else {
-          // Neither available: placeholders for both
-          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
-          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: config.marks || 16, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          generated.push({ part: 'B', baseNumber, sub: 'a', or: false, marks: marksReq, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
+          generated.push({ part: 'B', baseNumber, sub: 'b', or: true, marks: marksReq, co: '', btl: '', question_text: '', _insufficient: true, _insufficientCo: config.co, _insufficientBtl: config.btl } as any);
           partBMisses.push({ co: config.co, btl: config.btl, baseNumber });
         }
       }
@@ -564,7 +577,8 @@ const GeneratePaper = () => {
         // Accept Part_C if any type field matches
         const allTypes = [q.type, (q as any).TYPE, (q as any).type_letter, (q as any).excel_type].map(t => String(t || '').toUpperCase());
         const typeMatch = enforcePartCType ? allTypes.includes('PART_C') : (!cfgA.type || q.type === cfgA.type || q.type === 'descriptive');
-        const btlMatch = !cfgA.btl || cfgA.btl === 'random' || String((q as any).btl) === String(cfgA.btl).replace(/BTL/i,'');
+        const normalize = (v: any) => String(v || '').replace(/BTL\s*/i, '').trim();
+        const btlMatch = !cfgA.btl || cfgA.btl === 'random' || normalize((q as any).btl) === normalize(cfgA.btl);
         const notUsed = !pickedIds.has(q.id);
         const marksMatch = Number(q.marks) === requiredMarks;
         // If excelType hint is provided, honor TYPE=C style flags when available on the record
@@ -722,14 +736,16 @@ const GeneratePaper = () => {
     if (!isGenerated) return;
     setChecking(true);
     try {
+      const normalizeBTL = (v: any) => String(v || '').replace(/BTL\s*/i, '').trim().toLowerCase();
+      const normalizeCO = (v: any) => String(v || '').toString().trim().toLowerCase();
       const map1 = new Map<string, string>(); // normText -> id
       const map2 = new Map<string, string>();
       generatedQuestions1.forEach((q: any) => {
-        const key = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        const key = `${norm(q.question_text)}|${q.marks}|${normalizeCO(q.co||q.course_outcomes||'')}|${normalizeBTL(q.btl)}|${q.part||''}|${q.sub||''}`;
         map1.set(key, q.id || `${q.baseNumber}.${q.sub||''}`);
       });
       generatedQuestions2.forEach((q: any) => {
-        const key = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        const key = `${norm(q.question_text)}|${q.marks}|${normalizeCO(q.co||q.course_outcomes||'')}|${normalizeBTL(q.btl)}|${q.part||''}|${q.sub||''}`;
         map2.set(key, q.id || `${q.baseNumber}.${q.sub||''}`);
       });
       const dupKeys = new Set<string>();
@@ -737,11 +753,11 @@ const GeneratePaper = () => {
       const newD1 = new Set<string>();
       const newD2 = new Set<string>();
       generatedQuestions1.forEach((q: any) => {
-        const k = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        const k = `${norm(q.question_text)}|${q.marks}|${normalizeCO(q.co||q.course_outcomes||'')}|${normalizeBTL(q.btl)}|${q.part||''}|${q.sub||''}`;
         if (dupKeys.has(k)) newD1.add(q.id || `${q.baseNumber}.${q.sub||''}`);
       });
       generatedQuestions2.forEach((q: any) => {
-        const k = `${norm(q.question_text)}|${q.marks}|${(q.co||'').toString().toLowerCase()}|${String(q.btl||'').toString().toLowerCase()}|${q.part||''}|${q.sub||''}`;
+        const k = `${norm(q.question_text)}|${q.marks}|${normalizeCO(q.co||q.course_outcomes||'')}|${normalizeBTL(q.btl)}|${q.part||''}|${q.sub||''}`;
         if (dupKeys.has(k)) newD2.add(q.id || `${q.baseNumber}.${q.sub||''}`);
       });
       setDups1(newD1);
@@ -769,7 +785,8 @@ const GeneratePaper = () => {
     const isPartA = (q.part || 'A') === 'A' || (q.baseNumber || 0) <= 10;
     const marksReq = isPartA ? ((tpl.sections||[]).find((s:any)=> (s.name||'').toLowerCase().includes('section a'))?.marksPerQuestion || q.marks) : q.marks;
     const coReq = ((q.co || q.course_outcomes || '') as string).toString().trim().toLowerCase();
-    const btlReq = String(q.btl||'').replace(/BTL/i,'').trim();
+    const normalize = (v: any) => String(v || '').replace(/BTL\s*/i, '').trim();
+    const btlReq = normalize(q.btl);
     const typeReq = q.type;
 
     // pool honoring constraints and avoiding duplicate text across copies
@@ -777,7 +794,7 @@ const GeneratePaper = () => {
     const otherNorms = new Set(otherCopy.map((x:any)=> norm(x.question_text)));
     const pool = lastVerifiedQuestions.filter((cand:any)=>{
       const co = ((cand.course_outcomes||'') as string).toString().trim().toLowerCase();
-      const btl = String((cand as any).btl);
+      const btl = normalize((cand as any).btl);
       const okCo = co === coReq;
       const okBtl = !btlReq || btl === btlReq;
       const okMarks = Number(cand.marks) === Number(marksReq);
@@ -868,17 +885,17 @@ const GeneratePaper = () => {
           ? Boolean(ocrSelections1[q.id])
           : Boolean(ocrSelections2[q.id]);
         return ({
-        number: q.baseNumber,
-        sub: q.sub || undefined,
-        text: q.question_text,
-        co: q.co || q.courseOutcome || 'CO1',
-        btl: q.btl || 'BTL1',
-        marks: q.marks,
-        part: q.part || (q.baseNumber <= 10 ? 'A' : (q.baseNumber >= 16 ? 'C' : 'B')),
-        or: !!q.or,
-        image_url: await toDataUrl(src || null),
-        image_ocr: ocrSelected,
-      });
+          number: q.baseNumber,
+          sub: q.sub || undefined,
+          text: q.question_text,
+          co: q.co || q.courseOutcome || 'CO1',
+          btl: q.btl, // Use DB value as-is, no fallback
+          marks: q.marks,
+          part: q.part || (q.baseNumber <= 10 ? 'A' : (q.baseNumber >= 16 ? 'C' : 'B')),
+          or: !!q.or,
+          image_url: await toDataUrl(src || null),
+          image_ocr: ocrSelected,
+        });
       }));
       // Prepare form data
       const formData = new FormData();
@@ -982,54 +999,77 @@ const GeneratePaper = () => {
     const result: ExtendedQuestion[] = [];
     for (let i = 0; i < 5; i++) {
       // For each slot, take ith from chapter 1 for A, ith from chapter 2 for B
-      result.push(aQuestions[i] ? { ...aQuestions[i], baseNumber: 11 + i, sub: 'a', part: 'B', chapter: '1' } : {
-        baseNumber: 11 + i,
-        sub: 'a',
-        part: 'B',
-        chapter: '1',
-        correct_answer: '',
-        created_at: '',
-        difficulty: 'easy',
-        id: '',
-        marks: 0,
-        options: {},
-        question_text: '',
-        status: 'pending',
-        image_url: '',
-        topic: '',
-        type: 'objective',
-        unit: '',
-        updated_at: '',
-        user_id: '',
-        course_outcomes: '',
-        title: '',
-        answer_text: '',
-        btl: 0
-      });
-      result.push(bQuestions[i] ? { ...bQuestions[i], baseNumber: 11 + i, sub: 'b', part: 'B', chapter: '2' } : {
-        baseNumber: 11 + i,
-        sub: 'b',
-        part: 'B',
-        chapter: '2',
-        correct_answer: '',
-        created_at: '',
-        difficulty: 'easy',
-        id: '',
-        marks: 0,
-        options: {},
-        question_text: '',
-        status: 'pending',
-        image_url: '',
-        topic: '',
-        type: 'objective',
-        unit: '',
-        updated_at: '',
-        user_id: '',
-        course_outcomes: '',
-        title: '',
-        answer_text: '',
-        btl: 0
-      });
+      if (aQuestions[i]) {
+        // Use DB BTL directly
+        result.push({
+          ...aQuestions[i],
+          baseNumber: 11 + i,
+          sub: 'a',
+          part: 'B',
+          chapter: '1',
+          btl: aQuestions[i].btl // ensure DB value
+        });
+      } else {
+        result.push({
+          baseNumber: 11 + i,
+          sub: 'a',
+          part: 'B',
+          chapter: '1',
+          correct_answer: '',
+          created_at: '',
+          difficulty: 'easy',
+          id: '',
+          marks: 0,
+          options: {},
+          question_text: '',
+          status: 'pending',
+          image_url: '',
+          topic: '',
+          type: 'objective',
+          unit: '',
+          updated_at: '',
+          user_id: '',
+          course_outcomes: '',
+          title: '',
+          answer_text: '',
+          btl: ''
+        });
+      }
+      if (bQuestions[i]) {
+        result.push({
+          ...bQuestions[i],
+          baseNumber: 11 + i,
+          sub: 'b',
+          part: 'B',
+          chapter: '2',
+          btl: bQuestions[i].btl // ensure DB value
+        });
+      } else {
+        result.push({
+          baseNumber: 11 + i,
+          sub: 'b',
+          part: 'B',
+          chapter: '2',
+          correct_answer: '',
+          created_at: '',
+          difficulty: 'easy',
+          id: '',
+          marks: 0,
+          options: {},
+          question_text: '',
+          status: 'pending',
+          image_url: '',
+          topic: '',
+          type: 'objective',
+          unit: '',
+          updated_at: '',
+          user_id: '',
+          course_outcomes: '',
+          title: '',
+          answer_text: '',
+          btl: ''
+        });
+      }
     }
     return result;
   }
@@ -1044,8 +1084,22 @@ const GeneratePaper = () => {
     while (bQuestions.length < 5) bQuestions.push({} as ExtendedQuestion);
     const result: ExtendedQuestion[] = [];
     for (let i = 0; i < 5; i++) {
-      result.push({ ...aQuestions[i], baseNumber: 11 + i, sub: 'a', part: 'B', chapter: '1' });
-      result.push({ ...bQuestions[i], baseNumber: 11 + i, sub: 'b', part: 'B', chapter: '2' });
+      result.push({
+        ...aQuestions[i],
+        baseNumber: 11 + i,
+        sub: 'a',
+        part: 'B',
+        chapter: '1',
+        btl: aQuestions[i]?.btl // ensure DB value
+      });
+      result.push({
+        ...bQuestions[i],
+        baseNumber: 11 + i,
+        sub: 'b',
+        part: 'B',
+        chapter: '2',
+        btl: bQuestions[i]?.btl // ensure DB value
+      });
     }
     return result;
   }
@@ -1059,7 +1113,7 @@ const GeneratePaper = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>
-          <h1 className="text-2xl font-bold text-primary">Auto Generate Question Paper</h1>
+          <h1 className="text-2xl font-bold text-primary">Generate Question Paper</h1>
         </div>
       </nav>
 
@@ -1244,8 +1298,7 @@ const GeneratePaper = () => {
                           <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups1.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
-                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl ? ` • BTL ${q.btl}` : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
-                                {/* Show Type for 16th question (Part C) */}
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl !== undefined && q.btl !== null && String(q.btl).trim() ? ' ' + formatBtl(q.btl) : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions1.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                                 {q.baseNumber === 16 && q.type && (
                                   <span className="text-xs text-blue-700 font-bold">Type: {q.type === 'Part_C' ? 'Part C' : q.type}</span>
                                 )}
@@ -1318,7 +1371,7 @@ const GeneratePaper = () => {
                           <div key={idx} className={`border rounded-lg p-4 ${q._insufficient ? 'bg-red-50 border-red-400' : ''} ${dups2.has(q.id||`${q.baseNumber}.${q.sub||''}`) ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                             <div className="font-semibold mb-2 flex flex-col gap-2">
                               <span>
-                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl ? ` • BTL ${q.btl}` : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
+                                Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">Insufficient question for {q._insufficientCo || 'CO'}{q._insufficientType ? ` (${q._insufficientType})` : ''}{q._insufficientBtl ? ` (BTL ${q._insufficientBtl})` : ''}</span>} <span className="text-sm text-muted-foreground">({q.marks} marks{q.btl !== undefined && q.btl !== null && String(q.btl).trim() ? ' ' + formatBtl(q.btl) : ''}{q.chapter ? ` • Chapter ${q.chapter}` : ''})</span>{q.part==='B' && q.sub==='a' && generatedQuestions2.some((x:any)=>x.baseNumber===q.baseNumber && x.sub==='b') && <span className="ml-2 text-xs font-semibold">(Pair)</span>}
                               </span>
                               <div className="flex gap-2 mt-2">
                                 <Button size="sm" variant="outline" onClick={()=>openManualPick(2, idx)}>Pick Manually</Button>
@@ -1380,7 +1433,7 @@ const GeneratePaper = () => {
                                                         </td>
                                                         <td className="p-2 border">{getCoText(q)}</td>
                                                         <td className="p-2 border">{q.type || q.TYPE || q.type_letter || q.excel_type}</td>
-                                                        <td className="p-2 border">{q.btl}</td>
+                                                        <td className="p-2 border">{q.btl !== undefined && q.btl !== null && String(q.btl).trim() ? formatBtl(q.btl) : '-'}</td>
                                                         <td className="p-2 border">{q.chapter || '-'}</td>
                                                         <td className="p-2 border">{q.marks}</td>
                                                         <td className="p-2 border">
@@ -1488,7 +1541,7 @@ const GeneratePaper = () => {
                   return (
                   <div key={`c1-${idx}`} className={`border rounded p-3 ${isDup ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                     <div className="text-sm">
-                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl?` • BTL ${q.btl}`:''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
+                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl !== undefined && q.btl !== null && String(q.btl).trim() ? ' ' + formatBtl(q.btl) : ''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
                     </div>
                     {(imageSrcs1[q.id] || q.image_url) && (
                       <img src={imageSrcs1[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4, marginTop: 8 }} />
@@ -1515,7 +1568,7 @@ const GeneratePaper = () => {
                   return (
                   <div key={`c2-${idx}`} className={`border rounded p-3 ${isDup ? 'bg-yellow-50 border-yellow-400' : ''}`}>
                     <div className="text-sm">
-                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl?` • BTL ${q.btl}`:''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
+                      Q{q.baseNumber}{q.sub?'.'+q.sub:''}. {q.question_text || <span className="italic text-red-600">(missing)</span>} <span className="text-xs text-muted-foreground">({q.marks} marks{q.btl !== undefined && q.btl !== null && String(q.btl).trim() ? ' ' + formatBtl(q.btl) : ''}{q.chapter?` • Chapter ${q.chapter}`:''})</span>
                     </div>
                     {(imageSrcs2[q.id] || q.image_url) && (
                       <img src={imageSrcs2[q.id] || q.image_url} alt="Question" style={{ maxWidth: 160, maxHeight: 160, borderRadius: 4, marginTop: 8 }} />
