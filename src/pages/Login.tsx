@@ -13,6 +13,7 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<"admin" | "faculty">("faculty");
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,15 +21,47 @@ const Login = () => {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error, data } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        
+        // Fetch user role to determine redirect
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.user?.id)
+          .single();
+        
         toast.success("Logged in successfully");
-        navigate("/dashboard");
+        if (roleData?.role === "faculty") {
+          navigate("/faculty-dashboard");
+        } else if (roleData?.role === "admin") {
+          navigate("/auth");
+        } else {
+          navigate("/dashboard");
+        }
       } else {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error, data } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        toast.success("Account created! You can now log in.");
+        
+        // Create user role entry
+        if (data.user?.id) {
+          const { error: roleError } = await supabase
+            .from("user_roles")
+            .insert({
+              user_id: data.user.id,
+              role: selectedRole,
+            });
+          
+          if (roleError) {
+            console.error("Failed to set user role:", roleError);
+            toast.warning("Account created but role assignment failed. Please contact support.");
+          } else {
+            toast.success(`Account created as ${selectedRole}! You can now log in.`);
+          }
+        }
         setIsLogin(true);
+        setEmail("");
+        setPassword("");
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -68,6 +101,23 @@ const Login = () => {
                 required
               />
             </div>
+            {!isLogin && (
+              <div>
+                <Label htmlFor="role">Select Role</Label>
+                <select
+                  id="role"
+                  value={selectedRole}
+                  onChange={(e) => setSelectedRole(e.target.value as "admin" | "faculty")}
+                  className="w-full h-10 px-3 py-2 border border-input bg-background rounded-md text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="faculty">Faculty</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Faculty: Limited access to question generation. Admin: Full system access.
+                </p>
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
             </Button>

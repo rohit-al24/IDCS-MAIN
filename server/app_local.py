@@ -149,7 +149,7 @@ async def bulk_insert_questions(title_id: int = Form(...), status: str = Form('p
         raise HTTPException(status_code=500, detail=f'Bulk insert failed: {e}')
 
 @app.get('/api/question-bank')
-async def list_questions(status: Optional[str] = None, title_id: Optional[int] = None):
+async def list_questions(status: Optional[str] = None, title_id: Optional[int] = None, title: Optional[str] = None):
     conn = get_conn(); cur = conn.cursor()
     base = 'SELECT id,question_text,type,options,correct_answer,answer_text,btl,marks,status,chapter,course_outcomes,title_id FROM question_bank WHERE 1=1'
     params: List = []
@@ -157,6 +157,8 @@ async def list_questions(status: Optional[str] = None, title_id: Optional[int] =
         base += ' AND status=?'; params.append(status)
     if title_id:
         base += ' AND title_id=?'; params.append(title_id)
+    if title:
+        base += ' AND title=?'; params.append(title)
     rows = cur.execute(base, params).fetchall(); conn.close()
     return [{
         'id': r[0], 'question_text': r[1], 'type': r[2], 'options': json.loads(r[3]) if r[3] else None,
@@ -178,6 +180,33 @@ async def update_question_status(ids: str = Form(...), status: str = Form(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Status update failed: {e}')
+
+
+# Admin-only: seed sample pending questions for a given title_id
+@app.post('/api/admin/seed-question-bank')
+async def seed_question_bank(title_id: str = Form(...), count: int = Form(3), admin_secret: str = Form(...)):
+    """Seed `count` pending questions with the given `title_id`.
+    This endpoint is protected by an admin secret (set ADMIN_SECRET env var).
+    Use only for testing/local development.
+    """
+    try:
+        expected = os.environ.get('ADMIN_SECRET', 'dev-secret')
+        if admin_secret != expected:
+            raise HTTPException(status_code=403, detail='Invalid admin secret')
+        conn = get_conn(); cur = conn.cursor()
+        inserted_ids = []
+        for i in range(int(count)):
+            qtext = f'SEED: {title_id} sample {i+1}'
+            cur.execute("""INSERT INTO question_bank(question_text,type,options,correct_answer,answer_text,btl,marks,status,chapter,course_outcomes,title_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        (qtext, 'objective', None, None, None, 2, 1, 'pending', None, None, title_id))
+            inserted_ids.append(cur.lastrowid)
+        conn.commit(); conn.close()
+        return {'inserted': len(inserted_ids), 'ids': inserted_ids}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Seed failed: {e}')
 
 # Template file upload/scan
 @app.post('/api/template/upload')

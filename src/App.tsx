@@ -3,12 +3,14 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarGroup, SidebarGroupLabel, SidebarSeparator } from "@/components/ui/sidebar";
 import { NavLink } from "@/components/NavLink";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import { FileUp, FileText, Wand2, Shield, Home, LogIn } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import FacultyDashboard from "./pages/FacultyDashboard";
 import UploadQuestions from "./pages/UploadQuestions";
 import VerifyQuestions from "./pages/VerifyQuestions";
 import Templates from "./pages/Templates";
@@ -22,17 +24,51 @@ import { saveAs } from "file-saver";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import * as XLSX from "xlsx";
 import SplashOverlay from "./components/SplashOverlay";
+import { supabase } from "@/integrations/supabase/client";
+import Authentication from "./pages/Authentication";
+import VerifyQuestionsFaculty from "./pages/VerifyQuestionsFaculty";
+import VerifyQuestionsBank from "./pages/VerifyQuestionsBank";
 
 const queryClient = new QueryClient();
 
 const BANNER_TEXT = "Exam Paper Banner";
 
 function App() {
+    // Logout handler
+    const handleLogout = async () => {
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+    };
   // Splash screen state and auto-hide effect
   const [showSplash, setShowSplash] = useState(true);
+  const [userRole, setUserRole] = useState<"admin" | "faculty" | null>(null);
+  
   useEffect(() => {
     const t = setTimeout(() => setShowSplash(false), 1500);
     return () => clearTimeout(t);
+  }, []);
+
+  // Check user role on mount
+  useEffect(() => {
+    const checkUserRole = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+        
+        if (roleData) {
+          setUserRole(roleData.role);
+        }
+      }
+    };
+
+    checkUserRole();
   }, []);
 
   return (
@@ -46,7 +82,7 @@ function App() {
               <Sidebar side="left" collapsible="offcanvas">
                 <SidebarHeader>
                   <div
-                    className="flex items-center gap-4 px-6 py-6 rounded-t-2xl rounded-b-md shadow-lg drop-shadow-lg"
+                    className="flex items-center gap-4 px-6 py-6 rounded-t-2xl rounded-b-md shadow-lg drop-shadow-lg justify-between"
                     style={{
                       background: "linear-gradient(90deg, #7F7FD5 0%, #86A8E7 35%, #91EAE4 100%)",
                       boxShadow: "0 4px 24px 0 rgba(145,234,228,0.25), 0 1.5px 8px 0 rgba(134,168,231,0.15)"
@@ -62,6 +98,13 @@ function App() {
                     >
                       IDCS KR
                     </span>
+                    <button
+                      className="ml-auto bg-white/80 hover:bg-white text-primary font-semibold px-3 py-1 rounded shadow transition-all border border-primary/20"
+                      onClick={handleLogout}
+                      title="Logout"
+                    >
+                      Logout
+                    </button>
                   </div>
                   <style>
                     {`
@@ -84,70 +127,85 @@ function App() {
                     <SidebarMenu className="gap-1 px-2 pb-4">
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
-                          <NavLink to="/" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <Home className="w-5 h-5" />Home
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
                           <NavLink to="/login" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
                             <LogIn className="w-5 h-5" />Login
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/dashboard" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <FileText className="w-5 h-5" />Dashboard
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/upload" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <FileUp className="w-5 h-5" />Upload
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/verify" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <Shield className="w-5 h-5" />Verify
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/templates" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <FileText className="w-5 h-5" />Templates
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/manage-questions" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <FileUp className="w-5 h-5" />Manage Questions
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/auth" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20h6M3 20h5v-2a4 4 0 00-3-3.87M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                            </svg>
-                            Authentication
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <NavLink to="/generate" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                            <Wand2 className="w-5 h-5" />Generate
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
+                      {userRole === "admin" && (
+                        <>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <Home className="w-5 h-5" />Home
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/upload" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <FileUp className="w-5 h-5" />Upload
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/verify" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <Shield className="w-5 h-5" />Verify
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/templates" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <FileText className="w-5 h-5" />Templates
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/manage-questions" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <FileUp className="w-5 h-5" />Manage Questions
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/auth" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20h6M3 20h5v-2a4 4 0 00-3-3.87M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                                Authentication
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/generate" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <Wand2 className="w-5 h-5" />Generate
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        </>
+                      )}
+                      {userRole === "faculty" && (
+                        <>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/faculty-dashboard" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <FileText className="w-5 h-5" />Faculty Dashboard
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/verify-questions-faculty" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <Shield className="w-5 h-5" />Verify Questions
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        </>
+                      )}
                     </SidebarMenu>
                   </SidebarGroup>
                 </SidebarContent>
@@ -164,13 +222,17 @@ function App() {
                 <Routes>
                   <Route path="/" element={<Index />} />
                   <Route path="/login" element={<Login />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/upload" element={<UploadQuestions />} />
-                  <Route path="/verify" element={<VerifyQuestions />} />
-                  <Route path="/templates" element={<Templates />} />
-                  <Route path="/manage-questions" element={<ManageQuestionsPage />} />
-                  <Route path="/review-template" element={<TemplateQuestionReviewPage />} />
-                  <Route path="/generate" element={<GeneratePaper />} />
+                  <Route path="/dashboard" element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} />
+                  <Route path="/faculty-dashboard" element={<ProtectedRoute requiredRole="faculty"><FacultyDashboard /></ProtectedRoute>} />
+                  <Route path="/upload" element={<ProtectedRoute><UploadQuestions /></ProtectedRoute>} />
+                  <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
+                  <Route path="/templates" element={<ProtectedRoute requiredRole="admin"><Templates /></ProtectedRoute>} />
+                  <Route path="/manage-questions" element={<ProtectedRoute requiredRole="admin"><ManageQuestionsPage /></ProtectedRoute>} />
+                  <Route path="/review-template" element={<ProtectedRoute requiredRole="admin"><TemplateQuestionReviewPage /></ProtectedRoute>} />
+                  <Route path="/generate" element={<ProtectedRoute><GeneratePaper /></ProtectedRoute>} />
+                  <Route path="/auth" element={<ProtectedRoute requiredRole="admin"><Authentication /></ProtectedRoute>} />
+                  <Route path="/verify-questions-faculty" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsFaculty /></ProtectedRoute>} />
+                  <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>

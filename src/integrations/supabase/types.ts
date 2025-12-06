@@ -7,6 +7,27 @@ export type Json =
   | Json[]
 
 export type Database = {
+        faculty_question_banks: {
+          Row: {
+            id: string;
+            faculty_user_id: string;
+            question_bank_id: string;
+            assigned_at: string | null;
+          };
+          Insert: {
+            id?: string;
+            faculty_user_id: string;
+            question_bank_id: string;
+            assigned_at?: string | null;
+          };
+          Update: {
+            id?: string;
+            faculty_user_id?: string;
+            question_bank_id?: string;
+            assigned_at?: string | null;
+          };
+          Relationships: [];
+        };
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
