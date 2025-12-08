@@ -308,7 +308,7 @@ const Authentication = () => {
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
-                      placeholder="e.g. Dr. Rohit Sharma"
+                      placeholder="Dr. Dinesh"
                     />
                   </div>
 
@@ -320,7 +320,7 @@ const Authentication = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
-                      placeholder="faculty@college.edu"
+                      placeholder="faculty@krct.ac.in"
                     />
                   </div>
 
@@ -413,58 +413,92 @@ const Authentication = () => {
           </div>
         )}
         {activeTab === 'manage' && (
-          <div className="w-full max-w-2xl mx-auto">
-            <div className="mb-4">
-              <Input
-                type="text"
-                placeholder="Search by name or email..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full"
-              />
-            </div>
-            {!selectedUser ? (
-              <div className="flex flex-col gap-4 w-full">
-                {filteredFaculty.length === 0 ? (
-                  <div className="text-muted-foreground">No faculty users found.</div>
-                ) : (
-                  filteredFaculty.map((f) => (
-                    <Card key={f.user_id} className="w-full cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setSelectedUser(f)}>
+          <div className="w-full max-w-5xl mx-auto">
+            <Card className="mb-4">
+              <CardHeader>
+                <div className="flex items-center justify-between w-full">
+                  <div>
+                    <CardTitle>Manage Faculty</CardTitle>
+                    <div className="text-sm text-muted-foreground">Search, review and manage faculty accounts and their assigned question banks.</div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4">
+                  <Input
+                    type="text"
+                    placeholder="Search by name or email..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="md:col-span-2">
+                    <div className="space-y-3">
+                      {filteredFaculty.length === 0 ? (
+                        <div className="text-muted-foreground">No faculty users found.</div>
+                      ) : (
+                        filteredFaculty.map((f) => (
+                          <div
+                            key={f.user_id}
+                            onClick={() => setSelectedUser(f)}
+                            className={`p-4 rounded-lg border hover:shadow-md transition cursor-pointer ${selectedUser?.user_id === f.user_id ? 'ring-2 ring-primary/40' : 'bg-white'}`}>
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="text-base font-semibold">{f.full_name || '(no name)'}</div>
+                                <div className="text-sm text-muted-foreground">{f.email || '(no email)'}</div>
+                                {f.college_name ? <div className="text-sm text-muted-foreground mt-1">{f.college_name}</div> : null}
+                                <QuestionBankAssignmentPreview userId={f.user_id} />
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <div className="text-xs text-muted-foreground">Actions</div>
+                                <div className="flex gap-2">
+                                  <Button size="xs" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedUser(f); }}>
+                                    Edit
+                                  </Button>
+                                  <Button size="xs" variant="destructive" onClick={async (e) => { e.stopPropagation(); await handleDeleteUser(f.user_id); }}>
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-1">
+                    <Card>
                       <CardHeader>
-                        <CardTitle>{f.full_name || "(no name)"}</CardTitle>
+                        <CardTitle className="text-sm">Details</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="text-sm text-muted-foreground">{f.email || "(no email)"}</div>
-                        {f.college_name ? (
-                          <div className="text-sm text-muted-foreground">{f.college_name}</div>
-                        ) : null}
-                        {/* Question Bank Assignment Preview (admin manage list) */}
-                        <QuestionBankAssignmentPreview userId={f.user_id} />
+                        {!selectedUser ? (
+                          <div className="text-sm text-muted-foreground">Select a faculty on the left to view details, assignments and actions.</div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="text-lg font-semibold">{selectedUser.full_name || '(no name)'}</div>
+                            <div className="text-sm text-muted-foreground">{selectedUser.email}</div>
+                            {selectedUser.college_name && <div className="text-sm">{selectedUser.college_name}</div>}
+                            <div>
+                              <div className="font-medium mb-2">Assigned Question Banks</div>
+                              <QuestionBankAssignment userId={selectedUser.user_id} />
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <Button variant="destructive" onClick={() => handleDeleteUser(selectedUser.user_id)}>Delete User</Button>
+                              <Button variant="outline" onClick={() => toast.info('Access granted (demo)')}>Give Access</Button>
+                              <Button variant="secondary" onClick={() => setSelectedUser(null)}>Clear</Button>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
-                  ))
-                )}
-              </div>
-            ) : (
-              <Card className="w-full">
-                <CardHeader>
-                  <CardTitle>{selectedUser.full_name || "(no name)"}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-2 text-muted-foreground">{selectedUser.email || "(no email)"}</div>
-                  <div className="mb-4">
-                  <QuestionBankAssignment userId={selectedUser.user_id} />
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-4">
-                  <Button variant="destructive" onClick={() => handleDeleteUser(selectedUser.user_id)}>
-                    Delete User
-                  </Button>
-                  <Button variant="outline" onClick={() => toast.info("Access granted (demo)")}>Give Access</Button>
-                  <Button variant="secondary" onClick={() => setSelectedUser(null)}>Back</Button>
-                </div>
-                </CardContent>
-              </Card>
-            )}
+              </CardContent>
+            </Card>
           </div>
         )}
         {activeTab === 'logs' && (
