@@ -12,7 +12,72 @@ const Authentication = () => {
   const [password, setPassword] = useState("KRCT@2024");
   const [loading, setLoading] = useState(false);
   const [facultyList, setFacultyList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'create' | 'manage'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'manage' | 'logs'>('create');
+  // Logs state
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
+  const [questionTextMap, setQuestionTextMap] = useState<Record<string, string>>({});
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [banksList, setBanksList] = useState<any[]>([]);
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
+  const [selectedBankFilter, setSelectedBankFilter] = useState<string | null>(null);
+  const [actionFilter, setActionFilter] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState<string | null>(null);
+  const [dateTo, setDateTo] = useState<string | null>(null);
+  const LOGS_PAGE_SIZE = 200;
+
+  // Fetch logs helper (uses current filters unless opts.recent === true)
+  const fetchLogs = async (opts?: { recent?: boolean }) => {
+    setLogsLoading(true);
+    try {
+      let q: any = supabase.from('question_activity_logs').select('*').order('created_at', { ascending: false });
+      if (opts?.recent) {
+        q = q.limit(LOGS_PAGE_SIZE);
+      } else {
+        if (selectedUserFilter) q = q.eq('user_id', selectedUserFilter);
+        if (selectedBankFilter) q = q.eq('title_id', selectedBankFilter);
+        if (actionFilter) q = q.eq('action', actionFilter);
+        if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00Z');
+        if (dateTo) q = q.lte('created_at', dateTo + 'T23:59:59Z');
+      }
+      const { data, error } = await q;
+      if (error) {
+        console.error('Logs fetch error', error);
+        setLogs([]);
+        toast.error('Failed to load logs (table may not exist)');
+      } else {
+        const rows = data || [];
+        setLogs(rows);
+        // Fetch question_texts for any question_ids present in logs
+        try {
+          const ids = Array.from(new Set((rows || []).map((r: any) => r.question_id).filter(Boolean)));
+          if (ids.length) {
+            const { data: qrows, error: qerr } = await (supabase as any)
+              .from('question_bank')
+              .select('id, question_text')
+              .in('id', ids);
+            if (!qerr && Array.isArray(qrows)) {
+              const map: Record<string, string> = {};
+              qrows.forEach((qr: any) => { map[qr.id] = qr.question_text || ''; });
+              setQuestionTextMap(map);
+            } else {
+              setQuestionTextMap({});
+            }
+          } else {
+            setQuestionTextMap({});
+          }
+        } catch (e) {
+          console.warn('failed to fetch question texts for logs', e);
+          setQuestionTextMap({});
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setLogs([]);
+    }
+    setLogsLoading(false);
+  };
   const [showPassword, setShowPassword] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -26,14 +91,48 @@ const Authentication = () => {
     const fetchFaculty = async () => {
       const { data, error } = await supabase
         .from("user_roles")
-        .select("user_id, full_name, email")
+        .select("user_id, full_name, email, college_id")
         .eq("role", "faculty");
       if (!error && data) {
-        setFacultyList(data);
+        // Resolve college names for any college_ids
+        const collegeIds = Array.from(new Set((data || []).map((r: any) => r.college_id).filter(Boolean)));
+        let collegeMap: Record<string, string> = {};
+        if (collegeIds.length) {
+          const { data: cols } = await supabase.from('college').select('id, name').in('id', collegeIds);
+          collegeMap = (cols || []).reduce((acc: any, c: any) => ({ ...acc, [c.id]: c.name }), {});
+        }
+        const enriched = (data || []).map((r: any) => ({ ...r, college_name: r.college_id ? collegeMap[r.college_id] || '' : '' }));
+        setFacultyList(enriched);
       }
     };
     fetchFaculty();
   }, [loading]);
+
+  // load available users and banks for logs filters
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: users } = await supabase.from('user_roles').select('user_id, full_name, email').eq('role', 'faculty');
+        setUsersList(users || []);
+      } catch (e) {
+        setUsersList([]);
+      }
+      try {
+        const { data: banks } = await (supabase as any).from('question_bank_titles').select('id, title');
+        setBanksList(banks || []);
+      } catch (e) {
+        setBanksList([]);
+      }
+    })();
+  }, []);
+
+  // Auto-load recent logs when opening logs tab
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      fetchLogs({ recent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // Autocomplete for college code
   useEffect(() => {
@@ -129,6 +228,31 @@ const Authentication = () => {
     };
   }, []);
 
+  const toggleExpandLog = (id: string) => {
+    setExpandedLogs(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const summarizeDetails = (details: any) => {
+    if (details == null) return '-';
+    if (typeof details !== 'object') return String(details);
+    try {
+      const keys = Object.keys(details || {});
+      if (!keys.length) return JSON.stringify(details);
+      const parts = keys.map(k => {
+        const v = details[k];
+        if (v && typeof v === 'object' && ('before' in v || 'after' in v)) {
+          const before = v?.before ?? '-';
+          const after = v?.after ?? '-';
+          return `${k}: ${String(before)} → ${String(after)}`;
+        }
+        return `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`;
+      });
+      return parts.join('; ');
+    } catch (e) {
+      return String(details);
+    }
+  };
+
   return (
     <div className="flex min-h-screen">
       {/* Sub sidebar */}
@@ -145,6 +269,12 @@ const Authentication = () => {
           onClick={() => setActiveTab('manage')}
         >
           Manage
+        </button>
+        <button
+          className={`px-6 py-3 text-left w-full font-medium rounded-r-lg transition-all ${activeTab === 'logs' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/10'}`}
+          onClick={() => setActiveTab('logs')}
+        >
+          Logs
         </button>
       </div>
       {/* Main content */}
@@ -271,17 +401,20 @@ const Authentication = () => {
               />
             </div>
             {!selectedUser ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-4 w-full">
                 {filteredFaculty.length === 0 ? (
                   <div className="text-muted-foreground">No faculty users found.</div>
                 ) : (
                   filteredFaculty.map((f) => (
-                    <Card key={f.user_id} className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setSelectedUser(f)}>
+                    <Card key={f.user_id} className="w-full cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setSelectedUser(f)}>
                       <CardHeader>
                         <CardTitle>{f.full_name || "(no name)"}</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-sm text-muted-foreground">{f.email || "(no email)"}</div>
+                        {f.college_name ? (
+                          <div className="text-sm text-muted-foreground">{f.college_name}</div>
+                        ) : null}
                         {/* Question Bank Assignment Preview (admin manage list) */}
                         <QuestionBankAssignmentPreview userId={f.user_id} />
                       </CardContent>
@@ -309,6 +442,118 @@ const Authentication = () => {
                 </CardContent>
               </Card>
             )}
+          </div>
+        )}
+        {activeTab === 'logs' && (
+          <div className="w-full max-w-4xl mx-auto">
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+              <div>
+                <Label>By User</Label>
+                <select className="w-full p-2 border rounded" value={selectedUserFilter ?? ''} onChange={e => setSelectedUserFilter(e.target.value || null)}>
+                  <option value="">All users</option>
+                  {usersList.map(u => <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>By Bank</Label>
+                <select className="w-full p-2 border rounded" value={selectedBankFilter ?? ''} onChange={e => setSelectedBankFilter(e.target.value || null)}>
+                  <option value="">All banks</option>
+                  {banksList.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Action</Label>
+                <select className="w-full p-2 border rounded" value={actionFilter ?? ''} onChange={e => setActionFilter(e.target.value || null)}>
+                  <option value="">All</option>
+                  <option value="verified">Verified</option>
+                  <option value="unverified">Unverified</option>
+                  <option value="modified">Modified</option>
+                </select>
+              </div>
+              <div>
+                <Label>From</Label>
+                <input type="date" className="w-full p-2 border rounded" value={dateFrom ?? ''} onChange={e => setDateFrom(e.target.value || null)} />
+              </div>
+              <div>
+                <Label>To</Label>
+                <input type="date" className="w-full p-2 border rounded" value={dateTo ?? ''} onChange={e => setDateTo(e.target.value || null)} />
+              </div>
+              <div className="md:col-span-4 flex gap-2">
+                <Button onClick={() => fetchLogs({ recent: false })}>Load Logs</Button>
+                <Button variant="outline" onClick={() => { setSelectedUserFilter(null); setSelectedBankFilter(null); setActionFilter(null); setDateFrom(null); setDateTo(null); setLogs([]); }}>Reset</Button>
+              </div>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Activity Logs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {logsLoading ? (
+                  <div className="text-center">Loading...</div>
+                ) : logs.length === 0 ? (
+                  <div className="text-muted-foreground">No logs to show. Click "Load Logs" to fetch.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="p-2 text-left">When</th>
+                          <th className="p-2 text-left">User</th>
+                          <th className="p-2 text-left">Action</th>
+                          <th className="p-2 text-left">Question</th>
+                          <th className="p-2 text-left">Bank</th>
+                          <th className="p-2 text-left">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.map((r: any) => (
+                          <tr key={r.id} className="border-b">
+                            <td className="p-2">{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
+                            <td className="p-2">{(usersList.find(u => u.user_id === r.user_id)?.full_name) || r.user_id}</td>
+                            <td className="p-2 capitalize">{r.action || '-'}</td>
+                            <td className="p-2" title={questionTextMap[r.question_id] || r.question_id || '-'}>
+                              {(() => {
+                                const t = questionTextMap[r.question_id];
+                                if (t && t.length > 160) return t.slice(0, 160) + '…';
+                                if (t) return t;
+                                return r.question_id || '-';
+                              })()}
+                            </td>
+                            <td className="p-2">{(banksList.find(b => b.id === r.title_id)?.title) || r.title_id || '-'}</td>
+                            <td className="p-2 align-top">
+                              {r.details == null ? (
+                                '-'
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <div className="text-xs text-muted-foreground">
+                                    {(() => {
+                                      const summary = summarizeDetails(r.details);
+                                      return summary.length > 140 ? summary.slice(0, 140) + '…' : summary;
+                                    })()}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      className="text-xs text-primary underline"
+                                      onClick={() => toggleExpandLog(r.id)}
+                                    >
+                                      {expandedLogs[r.id] ? 'Hide details' : 'Show details'}
+                                    </button>
+                                  </div>
+                                  {expandedLogs[r.id] ? (
+                                    <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-auto max-w-2xl whitespace-pre-wrap">{JSON.stringify(r.details, null, 2)}</pre>
+                                  ) : null}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>
@@ -383,11 +628,10 @@ function QuestionBankAssignment({ userId }: { userId: string }) {
 
   const openDialog = async () => {
     setLoading(true);
-    // Fetch unique titles from question_bank (status: verified)
+    // Fetch unique titles from question_bank (all statuses)
     const { data, error } = await (supabase as any)
       .from("question_bank")
-      .select("title")
-      .eq("status", "verified");
+      .select("title");
     const titles = (data || [])
       .map((r: any) => (r.title || "").trim())
       .filter((t: string) => t.length > 0);
@@ -574,3 +818,42 @@ function QuestionBankAssignment({ userId }: { userId: string }) {
     </Card>
   );
 }
+
+// markVerified function
+const markVerified = async () => {
+  if (!selectedQuestion) return;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not logged in');
+
+    // Save question update
+    const { error } = await supabase
+      .from("question_bank")
+      .update({
+        ...editedQuestion,
+        status: "verified",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", selectedQuestion.id);
+
+    if (error) throw error;
+
+    // Write activity log
+    await supabase.from('question_activity_logs').insert([{
+      user_id: user.id,
+      action: 'verified',
+      question_id: selectedQuestion.id,
+      title_id: selectedQuestion.title_id,
+      details: {
+        before: selectedQuestion,         // optional: small snapshot
+        after: editedQuestion
+      }
+    }]);
+
+    toast({ title: "Success", description: "Question marked as verified" });
+    setIsEditDialogOpen(false);
+    fetchQuestions(selectedBankId || undefined);
+  } catch (error) {
+    toast({ title: "Error", description: "Failed to mark as verified", variant: "destructive" });
+  }
+};

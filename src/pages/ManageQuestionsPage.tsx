@@ -166,12 +166,7 @@ const ManageQuestionsPage: React.FC = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Pagination state for questions
-  const [questionsPage, setQuestionsPage] = useState(1);
-  const QUESTIONS_PAGE_SIZE = 50;
-  const [totalQuestions, setTotalQuestions] = useState(0);
-
-  const totalQuestionsPages = Math.max(1, Math.ceil(totalQuestions / QUESTIONS_PAGE_SIZE));
+  // No pagination: show all questions on a single page
 
   useEffect(() => {
     const fetchBanks = async () => {
@@ -184,36 +179,23 @@ const ManageQuestionsPage: React.FC = () => {
           setLoading(false);
           return;
         }
-        // Get distinct title_ids from question_bank that belong to this user and are verified
-        const { data: idRows, error: idErr } = await supabase
+        // Fetch verified question bank titles for user
+        const { data, error } = await supabase
           .from("question_bank")
-          .select("title_id")
+          .select("title")
           .eq("user_id", user.id)
           .eq("status", "verified");
-        if (idErr) {
-          setErrorMsg(idErr.message);
-          setBanks([]);
-          setLoading(false);
-          return;
-        }
-        const ids = Array.from(new Set((idRows || []).map((r: any) => r.title_id).filter(Boolean)));
-        if (ids.length === 0) {
-          setBanks([]);
-          setLoading(false);
-          return;
-        }
-        // Fetch titles from question_bank_titles for these ids
-        const { data, error } = await supabase
-          .from("question_bank_titles")
-          .select("id, title")
-          .in("id", ids);
         if (error) {
           setErrorMsg(error.message);
           setBanks([]);
           setLoading(false);
           return;
         }
-        setBanks((data || []).map((r: any) => ({ id: r.id, title: (r.title || "").trim() })));
+        const titles = (data || [])
+          .map((r: any) => (r.title || "").trim())
+          .filter((t: string) => t.length > 0);
+        const unique = Array.from(new Set(titles));
+        setBanks(unique.map(title => ({ title })));
       } catch (e: any) {
         setErrorMsg(e.message || String(e));
         setBanks([]);
@@ -236,22 +218,13 @@ const ManageQuestionsPage: React.FC = () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setQuestions([]); setQuestionsLoading(false); return; }
-        // Get total count using title_id
-        const { count } = await supabase
-          .from("question_bank")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .eq("status", "verified")
-          .eq("title_id", selectedBank.id);
-        setTotalQuestions(count || 0);
-        // Fetch only the current page
+        // Fetch all verified questions for this bank (no pagination)
         const { data, error } = await supabase
           .from("question_bank")
           .select("*")
           .eq("user_id", user.id)
           .eq("status", "verified")
-          .eq("title_id", selectedBank.id)
-          .range((questionsPage - 1) * QUESTIONS_PAGE_SIZE, questionsPage * QUESTIONS_PAGE_SIZE - 1);
+          .eq("title", selectedBank.title);
         if (error) { setQuestions([]); setQuestionsLoading(false); return; }
         setQuestions(data || []);
       } catch {
@@ -260,7 +233,7 @@ const ManageQuestionsPage: React.FC = () => {
       setQuestionsLoading(false);
     };
     fetchQuestions();
-  }, [selectedBank, questionsPage]);
+  }, [selectedBank]);
 
   // Helper to render CO as comma-separated numbers
   const formatCourseOutcomes = (q: any): string => {
@@ -365,10 +338,6 @@ const ManageQuestionsPage: React.FC = () => {
                       </DialogContent>
                     </Dialog>
 
-
-          // Editable row component for a question
-          import React from "react";
-
                     {/* Delete Bank Dialog */}
                     <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
                       <DialogContent>
@@ -390,7 +359,7 @@ const ManageQuestionsPage: React.FC = () => {
                                   .from("question_bank")
                                   .delete()
                                   .eq("user_id", user.id)
-                                  .eq("title_id", selectedBank.id);
+                                  .eq("title", selectedBank.title);
                                 setDeleteConfirmOpen(false);
                                 setSelectedBank(null);
                                 // Refresh banks
@@ -448,13 +417,7 @@ const ManageQuestionsPage: React.FC = () => {
             )}
           </div>
                   {/* Pagination controls */}
-                  {questions.length > 0 && (
-                    <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.max(1, p - 1))} disabled={questionsPage === 1}>Prev</Button>
-                      <span>Page {questionsPage} of {totalQuestionsPages}</span>
-                      <Button variant="outline" size="sm" onClick={() => setQuestionsPage(p => Math.min(totalQuestionsPages, p + 1))} disabled={questionsPage === totalQuestionsPages}>Next</Button>
-                    </div>
-                  )}
+                  {/* pagination removed: all questions shown on single page */}
 
           {/* Edit Single Question Dialog */}
           <Dialog open={!!editingQ} onOpenChange={v => { if (!v) setEditingQ(null); }}>
