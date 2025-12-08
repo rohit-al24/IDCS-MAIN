@@ -2,28 +2,40 @@ import React, { useEffect, useState } from "react";
 import "./splash.css";
 
 /**
- * SplashOverlay: displays only animated `IDCS` text.
- * Sequence: text animates in, stays, then fades out at ~5s total.
+ * SplashOverlay: animated gif (man flying) and IDCS text crossing animation.
+ * Sequence:
+ *  - Man (gif) flies from left → center, pauses ~1s → continues to right
+ *  - IDCS text moves from right → center (behind the gif) → continues left
+ *  - onDone() is called when animation completes
  */
-export default function SplashOverlay({ onDone }: { onDone?: () => void }) {
+export default function SplashOverlay({ onDone, imgSrc }: { onDone?: () => void; imgSrc?: string }) {
   const [visible, setVisible] = useState(true);
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
-    // Show animation for 7s total, then fade and call onDone
-    const tFade = setTimeout(() => setFadeOut(true), 7000); // start fade at 7s
+    // total animation length must match CSS keyframes durations (ms)
+    const total = 3200;
     const tDone = setTimeout(() => {
-      setVisible(false);
-      onDone?.();
-    }, 7600); // allow fade transition to finish
-    return () => { clearTimeout(tFade); clearTimeout(tDone); };
+      setFadeOut(true);
+      // small fade delay
+      setTimeout(() => {
+        setVisible(false);
+        onDone?.();
+      }, 300);
+    }, total);
+    return () => clearTimeout(tDone);
   }, [onDone]);
 
   if (!visible) return null;
 
+  const src = imgSrc || '/rocket.gif';
+
   return (
     <div className={`landing${fadeOut ? ' fade-out' : ''}`}>
-      <div className="idcs-only idcs-animate" aria-label="splash-idcs">IDCS</div>
+      {/* text should be behind the gif so keep lower z-index */}
+      <div className="idcs-only idcs-animate splash-text">IDCS</div>
+      {/* image placed above text so it appears in front */}
+      <img src={src} alt="man flying" className="splash-gif" />
     </div>
   );
 }

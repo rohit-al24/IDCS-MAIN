@@ -39,14 +39,11 @@ function App() {
       await supabase.auth.signOut();
       window.location.href = "/login";
     };
-  // Splash screen state and auto-hide effect
+  // Splash screen state (overlay will call onDone)
   const [showSplash, setShowSplash] = useState(true);
   const [userRole, setUserRole] = useState<"admin" | "faculty" | null>(null);
   
-  useEffect(() => {
-    const t = setTimeout(() => setShowSplash(false), 1500);
-    return () => clearTimeout(t);
-  }, []);
+  // Splash overlay will control when it's done and call onDone
 
   // Check user role on mount
   useEffect(() => {

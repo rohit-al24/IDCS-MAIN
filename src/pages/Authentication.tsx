@@ -253,6 +253,29 @@ const Authentication = () => {
     }
   };
 
+  const exportLogsAsJSON = () => {
+    try {
+      const blob = new Blob([JSON.stringify(logs || [], null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `question-activity-logs-${new Date().toISOString()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export failed', e);
+      toast.error('Failed to export logs');
+    }
+  };
+
+  const uniqueCount = (key: string) => {
+    try {
+      return Array.from(new Set((logs || []).map((r: any) => r[key] || '').filter(Boolean))).length;
+    } catch (e) {
+      return 0;
+    }
+  };
+
   return (
     <div className="flex min-h-screen">
       {/* Sub sidebar */}
@@ -502,48 +525,73 @@ const Authentication = () => {
           </div>
         )}
         {activeTab === 'logs' && (
-          <div className="w-full max-w-4xl mx-auto">
-            <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+          <div className="w-full max-w-6xl mx-auto">
+            <div className="flex items-center justify-between gap-4 mb-4">
               <div>
-                <Label>By User</Label>
-                <select className="w-full p-2 border rounded" value={selectedUserFilter ?? ''} onChange={e => setSelectedUserFilter(e.target.value || null)}>
-                  <option value="">All users</option>
-                  {usersList.map(u => <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>)}
-                </select>
+                <h3 className="text-lg font-semibold">Activity Logs</h3>
+                <div className="text-sm text-muted-foreground">Audit trail for question updates, verifications and edits.</div>
               </div>
-              <div>
-                <Label>By Bank</Label>
-                <select className="w-full p-2 border rounded" value={selectedBankFilter ?? ''} onChange={e => setSelectedBankFilter(e.target.value || null)}>
-                  <option value="">All banks</option>
-                  {banksList.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label>Action</Label>
-                <select className="w-full p-2 border rounded" value={actionFilter ?? ''} onChange={e => setActionFilter(e.target.value || null)}>
-                  <option value="">All</option>
-                  <option value="verified">Verified</option>
-                  <option value="unverified">Unverified</option>
-                  <option value="modified">Modified</option>
-                </select>
-              </div>
-              <div>
-                <Label>From</Label>
-                <input type="date" className="w-full p-2 border rounded" value={dateFrom ?? ''} onChange={e => setDateFrom(e.target.value || null)} />
-              </div>
-              <div>
-                <Label>To</Label>
-                <input type="date" className="w-full p-2 border rounded" value={dateTo ?? ''} onChange={e => setDateTo(e.target.value || null)} />
-              </div>
-              <div className="md:col-span-4 flex gap-2">
-                <Button onClick={() => fetchLogs({ recent: false })}>Load Logs</Button>
-                <Button variant="outline" onClick={() => { setSelectedUserFilter(null); setSelectedBankFilter(null); setActionFilter(null); setDateFrom(null); setDateTo(null); setLogs([]); }}>Reset</Button>
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div className="px-3 py-1 bg-muted rounded text-sm font-medium">{logs.length}</div>
+                <div className="text-xs text-muted-foreground">Users</div>
+                <div className="px-3 py-1 bg-muted rounded text-sm font-medium">{uniqueCount('user_id')}</div>
+                <div className="text-xs text-muted-foreground">Banks</div>
+                <div className="px-3 py-1 bg-muted rounded text-sm font-medium">{uniqueCount('title_id')}</div>
+                <Button onClick={() => fetchLogs({ recent: true })}>Load Recent</Button>
+                <Button variant="ghost" onClick={() => fetchLogs({ recent: false })}>Apply Filters</Button>
+                <Button variant="outline" onClick={exportLogsAsJSON}>Export</Button>
               </div>
             </div>
 
+            <Card className="mb-4">
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                  <div>
+                    <Label>By User</Label>
+                    <select className="w-full p-2 border rounded" value={selectedUserFilter ?? ''} onChange={e => setSelectedUserFilter(e.target.value || null)}>
+                      <option value="">All users</option>
+                      {usersList.map(u => <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>By Bank</Label>
+                    <select className="w-full p-2 border rounded" value={selectedBankFilter ?? ''} onChange={e => setSelectedBankFilter(e.target.value || null)}>
+                      <option value="">All banks</option>
+                      {banksList.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Action</Label>
+                    <select className="w-full p-2 border rounded" value={actionFilter ?? ''} onChange={e => setActionFilter(e.target.value || null)}>
+                      <option value="">All</option>
+                      <option value="verified">Verified</option>
+                      <option value="unverified">Unverified</option>
+                      <option value="modified">Modified</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-1">
+                    <Label>From</Label>
+                    <input type="date" className="w-full p-2 border rounded" value={dateFrom ?? ''} onChange={e => setDateFrom(e.target.value || null)} />
+                  </div>
+                  <div>
+                    <Label>To</Label>
+                    <input type="date" className="w-full p-2 border rounded" value={dateTo ?? ''} onChange={e => setDateTo(e.target.value || null)} />
+                  </div>
+                  <div className="md:col-span-4 flex gap-2">
+                    <Button onClick={() => fetchLogs({ recent: false })}>Load Logs</Button>
+                    <Button variant="outline" onClick={() => { setSelectedUserFilter(null); setSelectedBankFilter(null); setActionFilter(null); setDateFrom(null); setDateTo(null); setLogs([]); }}>Reset</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
-                <CardTitle>Activity Logs</CardTitle>
+                <div className="flex items-center justify-between w-full">
+                  <CardTitle>Log Entries</CardTitle>
+                  <div className="text-xs text-muted-foreground">Showing {logs.length} entries</div>
+                </div>
               </CardHeader>
               <CardContent>
                 {logsLoading ? (
@@ -552,8 +600,8 @@ const Authentication = () => {
                   <div className="text-muted-foreground">No logs to show. Click "Load Logs" to fetch.</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
+                    <table className="min-w-full text-sm divide-y">
+                      <thead className="bg-muted/50">
                         <tr>
                           <th className="p-2 text-left">When</th>
                           <th className="p-2 text-left">User</th>
@@ -565,11 +613,11 @@ const Authentication = () => {
                       </thead>
                       <tbody>
                         {logs.map((r: any) => (
-                          <tr key={r.id} className="border-b">
-                            <td className="p-2">{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
-                            <td className="p-2">{(usersList.find(u => u.user_id === r.user_id)?.full_name) || r.user_id}</td>
-                            <td className="p-2 capitalize">{r.action || '-'}</td>
-                            <td className="p-2" title={questionTextMap[r.question_id] || r.question_id || '-'}>
+                          <tr key={r.id} className="border-b hover:bg-muted/10 align-top">
+                            <td className="p-2 align-top text-xs text-muted-foreground">{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
+                            <td className="p-2 align-top">{(usersList.find(u => u.user_id === r.user_id)?.full_name) || r.user_id}</td>
+                            <td className="p-2 align-top capitalize">{r.action || '-'}</td>
+                            <td className="p-2 align-top" title={questionTextMap[r.question_id] || r.question_id || '-'}>
                               {(() => {
                                 const t = questionTextMap[r.question_id];
                                 if (t && t.length > 160) return t.slice(0, 160) + '…';
@@ -577,7 +625,7 @@ const Authentication = () => {
                                 return r.question_id || '-';
                               })()}
                             </td>
-                            <td className="p-2">{(banksList.find(b => b.id === r.title_id)?.title) || r.title_id || '-'}</td>
+                            <td className="p-2 align-top">{(banksList.find(b => b.id === r.title_id)?.title) || r.title_id || '-'}</td>
                             <td className="p-2 align-top">
                               {r.details == null ? (
                                 '-'

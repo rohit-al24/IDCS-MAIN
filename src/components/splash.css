@@ -28,21 +28,19 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%) scale(0.95);
+  transform: translate(-50%, -50%) scale(0.98);
   font-family: var(--poppins);
-  font-weight: 800;
-  font-size: clamp(28px, 8vw, 84px);
-  color: #fff;
-  letter-spacing: 0.06em;
-  z-index: 9999;
+  font-weight: 900; /* thicker */
+  /* larger and responsive */
+  font-size: clamp(44px, 12vw, 160px);
+  color: #0b1220; /* dark, near-slate/black */
+  letter-spacing: 0.04em;
+  z-index: 9000; /* keep behind the flying gif */
   opacity: 0;
   text-align: center;
-  text-shadow:
-    0 0 24px #43e97b,
-    0 0 48px #38f9d7,
-    0 0 64px #43e97b,
-    0 0 96px #38f9d7;
-  filter: drop-shadow(0 0 32px #43e97b);
+  /* subtle dark drop shadow instead of neon glow */
+  text-shadow: 0 6px 18px rgba(2,6,23,0.6), 0 2px 6px rgba(2,6,23,0.35);
+  filter: drop-shadow(0 8px 24px rgba(2,6,23,0.45));
   background: none;
   -webkit-background-clip: initial;
   background-clip: initial;
@@ -52,9 +50,30 @@
 
 
 .idcs-animate {
+  /* idcsIn: bring IDCS into center; idcsPulse kept for subtle scale */
+  /* removed green glow to make text dark and solid */
   animation: idcsIn 1s cubic-bezier(.22,.9,.2,1) forwards,
-             idcsPulse 4s ease 0s forwards,
-             idcsGlowGreen 2.5s ease-in-out infinite alternate;
+             idcsPulse 3.2s ease 0s forwards;
+}
+
+/* flying gif styles */
+.splash-gif {
+  position: absolute;
+  z-index: 10000; /* above text */
+  width: 180px;
+  height: auto;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  animation: manFly 3.2s cubic-bezier(.22,.9,.38,1) forwards;
+}
+
+@keyframes manFly {
+  0% { transform: translate(-140%, -6%) scale(0.9); opacity: 1; }
+  38% { transform: translate(0%, -8%) scale(1); }
+  58% { transform: translate(0%, -8%) scale(1); }
+  100% { transform: translate(140%, -6%) scale(0.9); opacity: 0; }
 }
 
 @keyframes idcsIn {
@@ -194,6 +213,11 @@
   .foot-box { flex: 1 0 25%; margin: 0; }
   .poster-body { flex: 1 0 100%; height: 40vh; width: 100%; }
   .poster-text { margin: auto; max-width: 600px; }
+}
+
+@media (max-width: 640px) {
+  .idcs-only { font-size: clamp(28px, 10vw, 84px); }
+  .splash-gif { width: 140px; }
 }
 
 @keyframes reveal-text { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
