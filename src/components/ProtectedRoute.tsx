@@ -5,26 +5,31 @@ import { supabase } from "@/integrations/supabase/client";
 interface ProtectedRouteProps {
   children: ReactNode;
   requiredRole?: "admin" | "faculty";
+  authOnly?: boolean;
 }
 
-const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
+const ProtectedRoute = ({ children, requiredRole, authOnly }: ProtectedRouteProps) => {
   const navigate = useNavigate();
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
     const checkAccess = async () => {
+      console.log('[ProtectedRoute] checkAccess start', { requiredRole, authOnly });
       // Check if user is authenticated
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
+      console.log('[ProtectedRoute] supabase.auth.getUser ->', { userId: user?.id });
+
       if (!user) {
+        console.log('[ProtectedRoute] no user -> navigating to /login');
         navigate("/login");
         return;
       }
 
-      // If no specific role is required, allow access
-      if (!requiredRole) {
+      // If authOnly is true or no specific role is required, allow access after authentication
+      if (authOnly || !requiredRole) {
         setIsAuthorized(true);
         return;
       }
@@ -37,19 +42,22 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
         .single();
 
       if (error || !roleData) {
-        console.error("Failed to fetch user role:", error);
-        navigate("/login");
+        console.error("[ProtectedRoute] Failed to fetch user role:", error, { roleData });
+        // Don't aggressively navigate away; treat as unauthorized and stop
+        setIsAuthorized(false);
         return;
       }
 
+      console.log('[ProtectedRoute] user roleData ->', roleData);
+
       // Check if user has required role
-      if (roleData.role === requiredRole || requiredRole === "faculty") {
-        // Faculty can access faculty routes, both can access their own routes
+      if (roleData.role === requiredRole) {
         setIsAuthorized(true);
       } else {
-        // User doesn't have required role
-        navigate(roleData.role === "faculty" ? "/faculty-dashboard" : "/dashboard");
+        // User doesn't have required role; do not navigate automatically (avoid unexpected redirects)
+        console.log('[ProtectedRoute] role mismatch - denying access (no redirect)', { userRole: roleData.role });
         setIsAuthorized(false);
+        return;
       }
     };
 

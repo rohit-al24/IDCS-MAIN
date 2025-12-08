@@ -169,12 +169,10 @@ const VerifyQuestions = () => {
         supabase
           .from("question_bank")
           .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
           .eq("status", "pending"),
         supabase
           .from("question_bank")
           .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
           .eq("status", "verified"),
       ]);
       setTotalVerified(verifiedCount || 0);
@@ -185,12 +183,10 @@ const VerifyQuestions = () => {
         supabase
           .from("question_bank")
           .select("*")
-          .eq("user_id", user.id)
           .eq("status", "verified"),
         supabase
           .from("question_bank")
           .select("*")
-          .eq("user_id", user.id)
           .eq("status", "pending"),
       ]);
       setUnverifiedQuestions(unverified || []);

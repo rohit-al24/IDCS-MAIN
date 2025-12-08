@@ -184,23 +184,36 @@ const ManageQuestionsPage: React.FC = () => {
           setLoading(false);
           return;
         }
-        // Fetch verified question bank titles for user
-        const { data, error } = await supabase
+        // Get distinct title_ids from question_bank that belong to this user and are verified
+        const { data: idRows, error: idErr } = await supabase
           .from("question_bank")
-          .select("title")
+          .select("title_id")
           .eq("user_id", user.id)
           .eq("status", "verified");
+        if (idErr) {
+          setErrorMsg(idErr.message);
+          setBanks([]);
+          setLoading(false);
+          return;
+        }
+        const ids = Array.from(new Set((idRows || []).map((r: any) => r.title_id).filter(Boolean)));
+        if (ids.length === 0) {
+          setBanks([]);
+          setLoading(false);
+          return;
+        }
+        // Fetch titles from question_bank_titles for these ids
+        const { data, error } = await supabase
+          .from("question_bank_titles")
+          .select("id, title")
+          .in("id", ids);
         if (error) {
           setErrorMsg(error.message);
           setBanks([]);
           setLoading(false);
           return;
         }
-        const titles = (data || [])
-          .map((r: any) => (r.title || "").trim())
-          .filter((t: string) => t.length > 0);
-        const unique = Array.from(new Set(titles));
-        setBanks(unique.map(title => ({ title })));
+        setBanks((data || []).map((r: any) => ({ id: r.id, title: (r.title || "").trim() })));
       } catch (e: any) {
         setErrorMsg(e.message || String(e));
         setBanks([]);
@@ -223,13 +236,13 @@ const ManageQuestionsPage: React.FC = () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setQuestions([]); setQuestionsLoading(false); return; }
-        // Get total count
+        // Get total count using title_id
         const { count } = await supabase
           .from("question_bank")
           .select("id", { count: "exact", head: true })
           .eq("user_id", user.id)
           .eq("status", "verified")
-          .eq("title", selectedBank.title);
+          .eq("title_id", selectedBank.id);
         setTotalQuestions(count || 0);
         // Fetch only the current page
         const { data, error } = await supabase
@@ -237,7 +250,7 @@ const ManageQuestionsPage: React.FC = () => {
           .select("*")
           .eq("user_id", user.id)
           .eq("status", "verified")
-          .eq("title", selectedBank.title)
+          .eq("title_id", selectedBank.id)
           .range((questionsPage - 1) * QUESTIONS_PAGE_SIZE, questionsPage * QUESTIONS_PAGE_SIZE - 1);
         if (error) { setQuestions([]); setQuestionsLoading(false); return; }
         setQuestions(data || []);
@@ -377,7 +390,7 @@ const ManageQuestionsPage: React.FC = () => {
                                   .from("question_bank")
                                   .delete()
                                   .eq("user_id", user.id)
-                                  .eq("title", selectedBank.title);
+                                  .eq("title_id", selectedBank.id);
                                 setDeleteConfirmOpen(false);
                                 setSelectedBank(null);
                                 // Refresh banks

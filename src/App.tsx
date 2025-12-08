@@ -26,8 +26,8 @@ import * as XLSX from "xlsx";
 import SplashOverlay from "./components/SplashOverlay";
 import { supabase } from "@/integrations/supabase/client";
 import Authentication from "./pages/Authentication";
-import VerifyQuestionsFaculty from "./pages/VerifyQuestionsFaculty";
 import VerifyQuestionsBank from "./pages/VerifyQuestionsBank";
+import VerifyQuestionsFacultyOpen from "./pages/VerifyQuestionsFacultyOpen";
 
 const queryClient = new QueryClient();
 
@@ -61,10 +61,8 @@ function App() {
           .select("role")
           .eq("user_id", user.id)
           .single();
-        
-        if (roleData) {
-          setUserRole(roleData.role);
-        }
+        console.log('[App] fetched user role', { userId: user.id, roleData });
+        if (roleData) setUserRole(roleData.role);
       }
     };
 
@@ -197,13 +195,13 @@ function App() {
                               </NavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild>
-                              <NavLink to="/verify-questions-faculty" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                                <Shield className="w-5 h-5" />Verify Questions
-                              </NavLink>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
+                              <SidebarMenuItem>
+                                <SidebarMenuButton asChild>
+                                  <NavLink to="/verify-faculty-open" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                    <Shield className="w-5 h-5" />Verify Questions
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
                         </>
                       )}
                     </SidebarMenu>
@@ -225,13 +223,16 @@ function App() {
                   <Route path="/dashboard" element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} />
                   <Route path="/faculty-dashboard" element={<ProtectedRoute requiredRole="faculty"><FacultyDashboard /></ProtectedRoute>} />
                   <Route path="/upload" element={<ProtectedRoute><UploadQuestions /></ProtectedRoute>} />
-                  <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
+                  
+                    <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
+                    <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
+                  <Route path="/verify" element={<ProtectedRoute authOnly><VerifyQuestions /></ProtectedRoute>} />
+                  <Route path="/verify-faculty-open" element={<VerifyQuestionsFacultyOpen />} />
                   <Route path="/templates" element={<ProtectedRoute requiredRole="admin"><Templates /></ProtectedRoute>} />
                   <Route path="/manage-questions" element={<ProtectedRoute requiredRole="admin"><ManageQuestionsPage /></ProtectedRoute>} />
                   <Route path="/review-template" element={<ProtectedRoute requiredRole="admin"><TemplateQuestionReviewPage /></ProtectedRoute>} />
                   <Route path="/generate" element={<ProtectedRoute><GeneratePaper /></ProtectedRoute>} />
                   <Route path="/auth" element={<ProtectedRoute requiredRole="admin"><Authentication /></ProtectedRoute>} />
-                  <Route path="/verify-questions-faculty" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsFaculty /></ProtectedRoute>} />
                   <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
