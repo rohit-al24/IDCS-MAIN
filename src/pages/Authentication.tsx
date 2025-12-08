@@ -280,114 +280,137 @@ const Authentication = () => {
       {/* Main content */}
       <div className="flex-1 flex flex-col items-center justify-center">
         {activeTab === 'create' && (
-          <Card className="w-full max-w-md mb-8">
-            <CardHeader>
-              <CardTitle>Create Faculty User</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleCreateFaculty} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="fullName">Full Name</Label>
-                  <Input
-                    id="fullName"
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="pt-2 pb-2 border-t mt-2 mb-2">
-                  <div className="font-semibold mb-2">College</div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="relative space-y-2" ref={dropdownRef}>
-                      <Label htmlFor="collegeCode">Code</Label>
-                      <Input
-                        id="collegeCode"
-                        type="text"
-                        value={collegeCode}
-                        onChange={(e) => {
-                          setCollegeCode(e.target.value);
-                          setCollegeId("");
-                          setCollegeName("");
-                        }}
-                        required
-                        placeholder="Type or select College Code"
-                        autoComplete="off"
-                      />
-                      {collegeSuggestions.length > 0 && (
-                        <ul className="absolute left-0 right-0 bg-white border rounded shadow z-10 mt-1 max-h-40 overflow-auto">
-                          {collegeSuggestions.map((c) => (
-                            <li
-                              key={c.id}
-                              className="px-3 py-2 cursor-pointer hover:bg-primary/10 whitespace-normal"
-                              onClick={() => {
-                                setCollegeCode(c.code);
-                                setCollegeName(c.name);
-                                setCollegeId(c.id);
-                                setCollegeSuggestions([]);
-                              }}
-                            >
-                              <span className="font-semibold">{c.code}</span> - {c.name}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="collegeName">Name</Label>
-                      <Input
-                        id="collegeName"
-                        type="text"
-                        value={collegeName}
-                        onChange={(e) => {
-                          setCollegeName(e.target.value);
-                          setCollegeId("");
-                          setCollegeCode("");
-                        }}
-                        required
-                        placeholder="Type or select College Name"
-                        autoComplete="off"
-                      />
-                    </div>
+          <div className="w-full max-w-2xl mb-8">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between w-full">
+                  <div>
+                    <CardTitle>Create Faculty User</CardTitle>
+                    <div className="text-sm text-muted-foreground">New Account for some faculty member to access some pages - IDCS</div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleCreateFaculty} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="col-span-1 md:col-span-2 flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-2xl font-bold">F</div>
+                    <div>
+                      <div className="text-lg font-semibold">New Faculty Account</div>
+                      <div className="text-sm text-muted-foreground">IDCS Login will be created for this faculty.</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="fullName">Full Name</Label>
                     <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      id="fullName"
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
                       required
-                      placeholder="KRCT@2024"
+                      placeholder="e.g. Dr. Rohit Sharma"
                     />
-                    <button
-                      type="button"
-                      className="absolute right-2 top-2 text-xs text-primary underline"
-                      onClick={() => setShowPassword((v) => !v)}
-                      tabIndex={-1}
-                    >
-                      {showPassword ? "Hide" : "Show"}
-                    </button>
                   </div>
-                </div>
-                <Button type="submit" className="w-full mt-4" disabled={loading}>
-                  {loading ? "Creating..." : "Create Faculty User"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      placeholder="faculty@college.edu"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        placeholder="Strong password"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 text-xs text-primary underline"
+                        onClick={() => setShowPassword((v) => !v)}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    <div className="text-xs text-muted-foreground">Default: <strong>KRCT@2024</strong>. You can instruct faculty to reset their password after first login.</div>
+                  </div>
+
+                  <div className="col-span-1 md:col-span-2">
+                    <div className="font-semibold mb-2">College / Affiliation</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="relative" ref={dropdownRef}>
+                        <Label htmlFor="collegeCode">College Code</Label>
+                        <Input
+                          id="collegeCode"
+                          type="text"
+                          value={collegeCode}
+                          onChange={(e) => {
+                            setCollegeCode(e.target.value);
+                            setCollegeId("");
+                            setCollegeName("");
+                          }}
+                          placeholder="Type or select College Code"
+                          autoComplete="off"
+                        />
+                        {collegeSuggestions.length > 0 && (
+                          <ul className="absolute left-0 right-0 bg-white border rounded shadow z-10 mt-1 max-h-40 overflow-auto">
+                            {collegeSuggestions.map((c) => (
+                              <li
+                                key={c.id}
+                                className="px-3 py-2 cursor-pointer hover:bg-primary/10 whitespace-normal"
+                                onClick={() => {
+                                  setCollegeCode(c.code);
+                                  setCollegeName(c.name);
+                                  setCollegeId(c.id);
+                                  setCollegeSuggestions([]);
+                                }}
+                              >
+                                <span className="font-semibold">{c.code}</span> - {c.name}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div>
+                        <Label htmlFor="collegeName">College Name</Label>
+                        <Input
+                          id="collegeName"
+                          type="text"
+                          value={collegeName}
+                          onChange={(e) => {
+                            setCollegeName(e.target.value);
+                            setCollegeId("");
+                            setCollegeCode("");
+                          }}
+                          placeholder="Type or select College Name"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-2">Select the college this faculty belongs to. If it doesn't exist, you can add it later.</div>
+                  </div>
+
+                  <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 mt-2">
+                    <Button type="button" variant="ghost" onClick={() => { setFullName(""); setEmail(""); setPassword("KRCT@2024"); setCollegeCode(""); setCollegeName(""); setCollegeId(""); }}>Reset</Button>
+                    <Button type="submit" className="ml-2" disabled={loading}>{loading ? "Creating..." : "Create Faculty User"}</Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
         )}
         {activeTab === 'manage' && (
           <div className="w-full max-w-2xl mx-auto">

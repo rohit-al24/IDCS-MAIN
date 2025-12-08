@@ -158,6 +158,63 @@ const ManageQuestionsPage: React.FC = () => {
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const imageSrcs = useQuestionImages(questions);
 
+  // Small circular progress component
+  const CircularProgress = ({ percent, size = 55, stroke = 4, ringScale = 1, textSize }: { percent: number; size?: number; stroke?: number; ringScale?: number; textSize?: number }) => {
+    const baseRadius = (size - stroke) / 2;
+    const radius = baseRadius * (ringScale ?? 1);
+    const c = 2 * Math.PI * radius;
+    const prevRef = React.useRef<number>(0);
+    const [animatedPercent, setAnimatedPercent] = React.useState<number>(Math.max(0, Math.min(100, Math.round(prevRef.current))));
+
+    React.useEffect(() => {
+      const from = Math.max(0, Math.min(100, Math.round(prevRef.current || 0)));
+      const to = Math.max(0, Math.min(100, Math.round(percent || 0)));
+      const duration = 9000; // ms (slower animation)
+      const start = performance.now();
+      let raf = 0;
+      const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = easeOutCubic(t);
+        const current = Math.round(from + (to - from) * eased);
+        setAnimatedPercent(current);
+        if (t < 1) raf = requestAnimationFrame(step);
+        else prevRef.current = to;
+      };
+      raf = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf);
+    }, [percent]);
+
+    const capped = Math.max(0, Math.min(100, animatedPercent));
+    const dash = (c * capped) / 100;
+    // color thresholds: red if unverified >= 20%, amber <70, teal >=70, green when 100%
+    const unverifiedPercent = 100 - capped;
+    const strokeColor = capped === 100
+      ? '#16a34a'
+      : (unverifiedPercent >= 20 ? '#ef4444' : capped < 70 ? '#f59e0b' : '#06b6d4');
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <g transform={`translate(${size / 2}, ${size / 2})`}>
+          <circle r={radius} cx={0} cy={0} fill="none" stroke="#e6e6e6" strokeWidth={stroke} />
+          <circle
+            r={radius}
+            cx={0}
+            cy={0}
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth={stroke}
+            strokeDasharray={`${dash} ${c - dash}`}
+            strokeLinecap="round"
+            transform={`rotate(-90)`}
+          />
+          <text x={0} y={0} textAnchor="middle" dominantBaseline="central" fontSize={textSize ?? Math.max(10, Math.floor(size / 4))} fill="#0f172a">
+            {capped}%
+          </text>
+        </g>
+      </svg>
+    );
+  };
+
   // Edit single question modal
   const [editingQ, setEditingQ] = useState(null);
   // Edit Qns Modal
@@ -179,23 +236,29 @@ const ManageQuestionsPage: React.FC = () => {
           setLoading(false);
           return;
         }
-        // Fetch verified question bank titles for user
+        // Fetch all questions for this user (we'll compute per-title totals and verified counts)
         const { data, error } = await supabase
           .from("question_bank")
-          .select("title")
-          .eq("user_id", user.id)
-          .eq("status", "verified");
+          .select("id, title, status")
+          .eq("user_id", user.id);
         if (error) {
           setErrorMsg(error.message);
           setBanks([]);
           setLoading(false);
           return;
         }
-        const titles = (data || [])
-          .map((r: any) => (r.title || "").trim())
-          .filter((t: string) => t.length > 0);
-        const unique = Array.from(new Set(titles));
-        setBanks(unique.map(title => ({ title })));
+        const rows = data || [];
+        // Build counts per title
+        const stats: Record<string, { total: number; verified: number }> = {};
+        for (const r of rows) {
+          const t = (r.title || '').trim();
+          if (!t) continue;
+          if (!stats[t]) stats[t] = { total: 0, verified: 0 };
+          stats[t].total += 1;
+          if (r.status === 'verified') stats[t].verified += 1;
+        }
+        const items = Object.keys(stats).map(title => ({ title, total: stats[title].total, verified: stats[title].verified }));
+        setBanks(items);
       } catch (e: any) {
         setErrorMsg(e.message || String(e));
         setBanks([]);
@@ -266,18 +329,29 @@ const ManageQuestionsPage: React.FC = () => {
         <div className="text-center text-red-500 py-12">{errorMsg}</div>
       ) : !selectedBank ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredBanks.map(bank => (
-            <Card
-              key={bank.title}
-              className="cursor-pointer transition-all duration-200 border border-primary/10 bg-primary/5 dark:bg-background/80 hover:border-primary/60 hover:shadow-xl group"
-              style={{ minHeight: 80, display: 'flex', alignItems: 'center' }}
-              onClick={() => setSelectedBank(bank)}
-            >
-              <CardContent className="p-6 flex items-center">
-                <div className="text-xl font-semibold text-primary group-hover:text-primary/90 mb-0 truncate" style={{ wordBreak: 'break-word' }}>{bank.title}</div>
-              </CardContent>
-            </Card>
-          ))}
+          {filteredBanks.map(bank => {
+            const total = (bank.total ?? 0) as number;
+            const verified = (bank.verified ?? 0) as number;
+            const percent = total > 0 ? Math.round((verified / total) * 100) : 0;
+            return (
+              <Card
+                key={bank.title}
+                className="cursor-pointer transition-all duration-200 border border-primary/10 bg-primary/5 dark:bg-background/80 hover:border-primary/60 hover:shadow-xl group"
+                style={{ minHeight: 80, display: 'flex', alignItems: 'center' }}
+                onClick={() => setSelectedBank(bank)}
+              >
+                <CardContent className="p-4 flex items-center justify-between gap-4">
+                  <div style={{ flex: 1 }}>
+                    <div className="text-xl font-semibold text-primary group-hover:text-primary/90 mb-0 truncate" style={{ wordBreak: 'break-word' }}>{bank.title}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{verified} verified • {total} total</div>
+                  </div>
+                  <div style={{ width: 64, height: 64 }}>
+                    <CircularProgress percent={percent} size={64} stroke={6} />
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
           {filteredBanks.length === 0 && (
             <div className="col-span-full text-center text-muted-foreground">No question banks found.</div>
           )}
@@ -294,6 +368,24 @@ const ManageQuestionsPage: React.FC = () => {
               <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>Delete Bank</Button>
               <Button variant="ghost" onClick={() => setSelectedBank(null)}>Back</Button>
             </div>
+          </div>
+
+          {/* Centered large circular progress inside bank view */}
+          <div className="flex items-center justify-center py-6">
+            {(() => {
+              const total = (selectedBank?.total ?? 0) as number;
+              const verified = (selectedBank?.verified ?? 0) as number;
+              const percent = total > 0 ? Math.round((verified / total) * 100) : 0;
+              return (
+                <div className="text-center">
+                  <div className="mx-auto" style={{ width: 180, height: 180 }}>
+                    <CircularProgress percent={percent} size={180} stroke={12} ringScale={0.78} textSize={48} />
+                  </div>
+                  <div className="mt-3 text-lg font-semibold text-primary">{verified} / {total} verified</div>
+                  <div className="text-sm text-muted-foreground">{percent}% verified</div>
+                </div>
+              );
+            })()}
           </div>
 
 
