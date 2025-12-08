@@ -169,7 +169,7 @@ const ManageQuestionsPage: React.FC = () => {
     React.useEffect(() => {
       const from = Math.max(0, Math.min(100, Math.round(prevRef.current || 0)));
       const to = Math.max(0, Math.min(100, Math.round(percent || 0)));
-      const duration = 9000; // ms (slower animation)
+      const duration = 5000; // ms (slower animation)
       const start = performance.now();
       let raf = 0;
       const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);

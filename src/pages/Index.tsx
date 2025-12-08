@@ -31,7 +31,7 @@ const Index = () => {
               className="ml-2 text-red-600 bg-red-100 px-2 py-0.5 rounded shadow-md font-extrabold"
               style={{ boxShadow: "0 0 8px 2px rgba(220,38,38,0.25)" }}
               >
-                2.0
+                5.1.0
               </span>
             </h1>
           <Button onClick={() => navigate("/login")}>Login</Button>

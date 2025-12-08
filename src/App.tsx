@@ -19,10 +19,7 @@ import NotFound from "./pages/NotFound";
 import TemplateUploadPage from "./pages/TemplateUploadPage";
 import ManageQuestionsPage from "./pages/ManageQuestionsPage";
 import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
-import React, { useState, useEffect } from "react";
-import { saveAs } from "file-saver";
-import { Document, Packer, Paragraph, TextRun } from "docx";
-import * as XLSX from "xlsx";
+import { useState, useEffect } from "react";
 import SplashOverlay from "./components/SplashOverlay";
 import { supabase } from "@/integrations/supabase/client";
 import Authentication from "./pages/Authentication";
@@ -30,8 +27,6 @@ import VerifyQuestionsBank from "./pages/VerifyQuestionsBank";
 import VerifyQuestionsFacultyOpen from "./pages/VerifyQuestionsFacultyOpen";
 
 const queryClient = new QueryClient();
-
-const BANNER_TEXT = "Exam Paper Banner";
 
 function App() {
     // Logout handler
@@ -42,74 +37,69 @@ function App() {
   // Splash screen state (overlay will call onDone)
   const [showSplash, setShowSplash] = useState(true);
   const [userRole, setUserRole] = useState<"admin" | "faculty" | null>(null);
-  
-  // Splash overlay will control when it's done and call onDone
 
   // Check user role on mount
-  useEffect(() => {
-    const checkUserRole = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      
-      if (user) {
-        const { data: roleData } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id)
-          .single();
-        console.log('[App] fetched user role', { userId: user.id, roleData });
-        if (roleData) setUserRole(roleData.role);
-      }
-    };
+  const checkUserRole = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+      if (roleData) setUserRole(roleData.role);
+    } else {
+      setUserRole(null);
+    }
+  };
 
+  useEffect(() => {
     checkUserRole();
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <Sonner />
         <BrowserRouter>
           <SidebarProvider>
-            <div className="flex min-h-screen w-full">
-              <Sidebar side="left" collapsible="offcanvas">
+            <div className="flex min-h-screen">
+              <Sidebar style={{ background: '#004D40' }}>
                 <SidebarHeader>
-                  <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-slate-50 via-white to-white border-b border-gray-200">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-md bg-gradient-to-tr from-primary/10 to-primary/5 border border-primary/20 shadow-sm text-primary-700">
-                    {/* Simple, professional monogram with soft color */}
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden className="text-primary-600">
-                      <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" strokeWidth="1.2" />
-                      <path d="M7 16V8l5 4 5-4v8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                  <div className="flex items-center justify-between px-4 py-3" style={{ background: 'linear-gradient(90deg, #e7f7ec 0%, #f3efe6 100%)', borderBottom: '1px solid rgba(34,34,34,0.06)' }}>
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-full bg-primary/10 p-2">
+                        {/* Logo SVG */}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="none" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12l2 2 4-4" />
+                        </svg>
+                      </div>
+                      <div className="leading-tight">
+                        <div className="text-sm font-semibold text-primary-700">IDCS KR</div>
+                        <div className="text-xs text-primary-500">Examination Management</div>
+                      </div>
                     </div>
-                    <div className="leading-tight">
-                    <div className="text-sm font-semibold text-primary-700">IDCS KR</div>
-                    <div className="text-xs text-primary-500">Examination Management</div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleLogout}
+                        title="Logout"
+                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/70 border border-gray-200 rounded-md text-sm text-primary-700 hover:bg-primary/10 hover:border-primary/20 transition"
+                      >
+                        {/* Minimal logout icon with subtle color */}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M7 8v8" />
+                        </svg>
+                        Logout
+                      </button>
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                    onClick={handleLogout}
-                    title="Logout"
-                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/70 border border-gray-200 rounded-md text-sm text-primary-700 hover:bg-primary/10 hover:border-primary/20 transition"
-                    >
-                    {/* Minimal logout icon with subtle color */}
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 8v8" />
-                    </svg>
-                    Logout
-                    </button>
-                  </div>
                   </div>
                 </SidebarHeader>
                 <SidebarContent>
                   <SidebarGroup>
-                    <SidebarGroupLabel className="text-lg font-semibold mb-4 mt-4 text-gray-500">Main</SidebarGroupLabel>
+                    <SidebarGroupLabel className="text-lg font-semibold mb-4 mt-4 text-[#7a7a7a]">Main</SidebarGroupLabel>
                     <SidebarMenu className="gap-1 px-2 pb-4">
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
@@ -183,13 +173,13 @@ function App() {
                               </NavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                              <SidebarMenuItem>
-                                <SidebarMenuButton asChild>
-                                  <NavLink to="/verify-faculty-open" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                                    <Shield className="w-5 h-5" />Verify Questions
-                                  </NavLink>
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
+                              <NavLink to="/verify-faculty-open" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <Shield className="w-5 h-5" />Verify Questions
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
                         </>
                       )}
                     </SidebarMenu>
@@ -204,16 +194,15 @@ function App() {
                     <SplashOverlay videoSrc="/intro.mp4" onDone={() => setShowSplash(false)} />
                   </div>
                 )}
-
                 <Routes>
                   <Route path="/" element={<Index />} />
                   <Route path="/login" element={<Login />} />
+                  {/* ...existing code... */}
                   <Route path="/dashboard" element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} />
                   <Route path="/faculty-dashboard" element={<ProtectedRoute requiredRole="faculty"><FacultyDashboard /></ProtectedRoute>} />
                   <Route path="/upload" element={<ProtectedRoute><UploadQuestions /></ProtectedRoute>} />
-                  
-                    <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
-                    <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
+                  <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
+                  <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
                   <Route path="/verify" element={<ProtectedRoute authOnly><VerifyQuestions /></ProtectedRoute>} />
                   <Route path="/verify-faculty-open" element={<VerifyQuestionsFacultyOpen />} />
                   <Route path="/templates" element={<ProtectedRoute requiredRole="admin"><Templates /></ProtectedRoute>} />
