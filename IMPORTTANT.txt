@@ -1,0 +1,26 @@
+python -m uvicorn server.template_backend:app --reload --port 4000
+
+In nthe excel sheet the 2 nd row has first column has course name it should replace in the generate paper in the - course code
+
+
+p_a.paragraph_format.left_indent = Inches(0.0)
+[Inches(0.5), Inches(4.8), Inches(0.5), Inches(0.6), Inches(0.6)]
+
+
+python -m uvicorn server.template_backend:app --reload --port 4000
+
+E:/FINAL/IDCS-MAIN-3/.venv/Scripts/python.exe -m PyInstaller --onedir --name KR-QP-GENERATOR --add-data "dist;dist" --add-data "server;server" server/app_packaged.py
+
+pip install -r server/requirements.txt
+
+pip install python-docx
+
+----------------------------------------------------------------------POWERSHELL
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\server\build_exe_full.ps1
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\server\build_exe.ps1
+
+-------------------------------------------------------------------------

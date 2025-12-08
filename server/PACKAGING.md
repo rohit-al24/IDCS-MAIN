@@ -19,6 +19,17 @@ Steps
    - Install backend requirements + `pyinstaller`
    - Build `dist/KR-Question-Generator.exe`
 
+Alternative: timestamped full-package EXE
+
+If you want a timestamped EXE that also bundles the `supabase/` folder, use the included `build_exe_full.ps1` script instead:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\server\build_exe_full.ps1
+```
+
+This produces `dist/KR-Question-Generator-<yyyymmddHHMM>.exe` and includes `dist/` and `supabase/` in the bundled binary.
+
 2) Run the app
 
    Double-click `dist/KR-Question-Generator.exe` (or run from terminal). It will start the backend on port 4000 and open your browser.

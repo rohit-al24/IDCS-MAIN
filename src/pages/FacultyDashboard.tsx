@@ -69,7 +69,7 @@ const FacultyDashboard = () => {
       </nav>
     <main className="container mx-auto px-4 py-12 flex-1">
       <div className="max-w-4xl">
-        <h2 className="text-4xl font-bold mb-2">Welcome, Faculty</h2>
+        <h2 className="text-4xl font-bold mb-2">Welcome, {faculty.full_name || "(no email)"}</h2>
         <p className="text-muted-foreground mb-8">
         From IQAC (IDCS) KRCT
         </p>
