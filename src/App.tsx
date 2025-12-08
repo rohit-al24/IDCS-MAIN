@@ -47,6 +47,7 @@ function App() {
 
   // Check user role on mount
   useEffect(() => {
+    // Initial role check
     const checkUserRole = async () => {
       const {
         data: { user },
@@ -64,8 +65,23 @@ function App() {
     };
 
     checkUserRole();
-  }, []);
 
+    // Subscribe to auth changes so we can refresh role immediately after login/logout
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        checkUserRole();
+      } else if (event === 'SIGNED_OUT') {
+        setUserRole(null);
+      }
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      // Different supabase client versions expose the subscription in different shapes
+      if (data?.subscription) data.subscription.unsubscribe();
+      else if (typeof data === 'object' && typeof (data as any).unsubscribe === 'function') (data as any).unsubscribe();
+    };
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
