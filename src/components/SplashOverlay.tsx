@@ -8,34 +8,48 @@ import "./splash.css";
  *  - IDCS text moves from right → center (behind the gif) → continues left
  *  - onDone() is called when animation completes
  */
-export default function SplashOverlay({ onDone, imgSrc }: { onDone?: () => void; imgSrc?: string }) {
+export default function SplashOverlay({ onDone, videoSrc }: { onDone?: () => void; videoSrc?: string }) {
   const [visible, setVisible] = useState(true);
+  const [error, setError] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
 
-  useEffect(() => {
-    // total animation length must match CSS keyframes durations (ms)
-    const total = 3200;
-    const tDone = setTimeout(() => {
+  const handleVideoEnd = () => {
+    setFadeOut(true);
+    setTimeout(() => {
+      setVisible(false);
+      onDone?.();
+    }, 700); // match CSS fade duration
+  };
+  const handleVideoError = () => {
+    setError(true);
+    setTimeout(() => {
       setFadeOut(true);
-      // small fade delay
       setTimeout(() => {
         setVisible(false);
         onDone?.();
-      }, 300);
-    }, total);
-    return () => clearTimeout(tDone);
-  }, [onDone]);
+      }, 700);
+    }, 1200);
+  };
 
   if (!visible) return null;
 
-  const src = imgSrc || '/rocket.gif';
-
   return (
-    <div className={`landing${fadeOut ? ' fade-out' : ''}`}>
-      {/* text should be behind the gif so keep lower z-index */}
-      <div className="idcs-only idcs-animate splash-text">IDCS</div>
-      {/* image placed above text so it appears in front */}
-      <img src={src} alt="man flying" className="splash-gif" />
+    <div className={`splash-fullscreen${fadeOut ? ' splash-fadeout' : ''}`}>
+      {error ? (
+        <div className="splash-error-msg" style={{ color: '#fff', fontSize: '2rem', textAlign: 'center', margin: 'auto' }}>
+          Unable to load splash video.<br />Please check <b>public/intro.mp4</b>.<br />
+        </div>
+      ) : (
+        <video
+          className="splash-video-full"
+          src={videoSrc || '/intro.mp4'}
+          autoPlay
+          playsInline
+          muted
+          onEnded={handleVideoEnd}
+          onError={handleVideoError}
+        />
+      )}
     </div>
   );
 }

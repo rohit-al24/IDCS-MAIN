@@ -76,45 +76,36 @@ function App() {
             <div className="flex min-h-screen w-full">
               <Sidebar side="left" collapsible="offcanvas">
                 <SidebarHeader>
-                  <div
-                    className="flex items-center gap-4 px-6 py-6 rounded-t-2xl rounded-b-md shadow-lg drop-shadow-lg justify-between"
-                    style={{
-                      background: "linear-gradient(90deg, #7F7FD5 0%, #86A8E7 35%, #91EAE4 100%)",
-                      boxShadow: "0 4px 24px 0 rgba(145,234,228,0.25), 0 1.5px 8px 0 rgba(134,168,231,0.15)"
-                    }}
-                  >
-                    <span
-                      className="text-4xl font-extrabold tracking-wide drop-shadow animate-text-glow"
-                      style={{
-                        color: "white",
-                        letterSpacing: "0.05em",
-                        textShadow: "0 0 12px #86A8E7, 0 0 24px #91EAE4, 0 0 32px #7F7FD5"
-                      }}
-                    >
-                      IDCS KR
-                    </span>
+                  <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-slate-50 via-white to-white border-b border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-10 h-10 rounded-md bg-gradient-to-tr from-primary/10 to-primary/5 border border-primary/20 shadow-sm text-primary-700">
+                    {/* Simple, professional monogram with soft color */}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden className="text-primary-600">
+                      <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" strokeWidth="1.2" />
+                      <path d="M7 16V8l5 4 5-4v8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    </div>
+                    <div className="leading-tight">
+                    <div className="text-sm font-semibold text-primary-700">IDCS KR</div>
+                    <div className="text-xs text-primary-500">Examination Management</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
                     <button
-                      className="ml-auto bg-white/80 hover:bg-white text-primary font-semibold px-3 py-1 rounded shadow transition-all border border-primary/20"
-                      onClick={handleLogout}
-                      title="Logout"
+                    onClick={handleLogout}
+                    title="Logout"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/70 border border-gray-200 rounded-md text-sm text-primary-700 hover:bg-primary/10 hover:border-primary/20 transition"
                     >
-                      Logout
+                    {/* Minimal logout icon with subtle color */}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 8v8" />
+                    </svg>
+                    Logout
                     </button>
                   </div>
-                  <style>
-                    {`
-                      @keyframes glow {
-                        0% {
-                          text-shadow: 0 0 12px #86A8E7, 0 0 24px #91EAE4, 0 0 32px #7F7FD5;
-                          filter: brightness(1.1);
-                        }
-                        100% {
-                          text-shadow: 0 0 32px #ffaf7b, 0 0 48px #d76d77, 0 0 64px #3a1c71;
-                          filter: brightness(1.3);
-                        }
-                      }
-                    `}
-                  </style>
+                  </div>
                 </SidebarHeader>
                 <SidebarContent>
                   <SidebarGroup>
@@ -210,7 +201,7 @@ function App() {
                 {/* Splash overlay rendered on top */}
                 {showSplash && (
                   <div className="fixed inset-0 z-[9999] bg-white">
-                    <SplashOverlay onDone={() => setShowSplash(false)} />
+                    <SplashOverlay videoSrc="/intro.mp4" onDone={() => setShowSplash(false)} />
                   </div>
                 )}
 

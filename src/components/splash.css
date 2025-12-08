@@ -69,6 +69,35 @@
   animation: manFly 3.2s cubic-bezier(.22,.9,.38,1) forwards;
 }
 
+/* video-based splash */
+
+.splash-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.7s cubic-bezier(.4,.8,.6,1);
+  opacity: 1;
+}
+
+.splash-fullscreen.splash-fadeout {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-video-full {
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  background: #000;
+  display: block;
+}
+
 @keyframes manFly {
   0% { transform: translate(-140%, -6%) scale(0.9); opacity: 1; }
   38% { transform: translate(0%, -8%) scale(1); }
