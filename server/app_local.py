@@ -537,3 +537,4 @@ async def generate_docx(
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=4001)
+# For deployment, use: https://idcs-main-kucq.onrender.com
