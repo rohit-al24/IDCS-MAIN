@@ -19,7 +19,10 @@ import NotFound from "./pages/NotFound";
 import TemplateUploadPage from "./pages/TemplateUploadPage";
 import ManageQuestionsPage from "./pages/ManageQuestionsPage";
 import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import { saveAs } from "file-saver";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+import * as XLSX from "xlsx";
 import SplashOverlay from "./components/SplashOverlay";
 import { supabase } from "@/integrations/supabase/client";
 import Authentication from "./pages/Authentication";
@@ -27,6 +30,8 @@ import VerifyQuestionsBank from "./pages/VerifyQuestionsBank";
 import VerifyQuestionsFacultyOpen from "./pages/VerifyQuestionsFacultyOpen";
 
 const queryClient = new QueryClient();
+
+const BANNER_TEXT = "Exam Paper Banner";
 
 function App() {
     // Logout handler
@@ -37,35 +42,39 @@ function App() {
   // Splash screen state (overlay will call onDone)
   const [showSplash, setShowSplash] = useState(true);
   const [userRole, setUserRole] = useState<"admin" | "faculty" | null>(null);
+  
+  // Splash overlay will control when it's done and call onDone
 
   // Check user role on mount
-  const checkUserRole = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user) {
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
-      if (roleData) setUserRole(roleData.role);
-    } else {
-      setUserRole(null);
-    }
-  };
-
   useEffect(() => {
+    const checkUserRole = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .single();
+        console.log('[App] fetched user role', { userId: user.id, roleData });
+        if (roleData) setUserRole(roleData.role);
+      }
+    };
+
     checkUserRole();
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <Toaster />
+        <Sonner />
         <BrowserRouter>
           <SidebarProvider>
-            <div className="flex min-h-screen">
-              <Sidebar style={{ background: '#004D40' }}>
+            <div className="flex min-h-screen w-full">
+              <Sidebar side="left" collapsible="offcanvas">
                 <SidebarHeader>
                   <div className="flex items-center justify-between px-4 py-3" style={{ background: 'linear-gradient(90deg, #e7f7ec 0%, #f3efe6 100%)', borderBottom: '1px solid rgba(34,34,34,0.06)' }}>
                     <div className="flex items-center gap-3">
@@ -99,7 +108,7 @@ function App() {
                 </SidebarHeader>
                 <SidebarContent>
                   <SidebarGroup>
-                    <SidebarGroupLabel className="text-lg font-semibold mb-4 mt-4 text-[#7a7a7a]">Main</SidebarGroupLabel>
+                    <SidebarGroupLabel className="text-lg font-semibold mb-4 mt-4 text-gray-500">Main</SidebarGroupLabel>
                     <SidebarMenu className="gap-1 px-2 pb-4">
                       <SidebarMenuItem>
                         <SidebarMenuButton asChild>
@@ -173,13 +182,13 @@ function App() {
                               </NavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild>
-                              <NavLink to="/verify-faculty-open" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
-                                <Shield className="w-5 h-5" />Verify Questions
-                              </NavLink>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
+                              <SidebarMenuItem>
+                                <SidebarMenuButton asChild>
+                                  <NavLink to="/verify-faculty-open" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                    <Shield className="w-5 h-5" />Verify Questions
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
                         </>
                       )}
                     </SidebarMenu>
@@ -194,15 +203,16 @@ function App() {
                     <SplashOverlay videoSrc="/intro.mp4" onDone={() => setShowSplash(false)} />
                   </div>
                 )}
+
                 <Routes>
                   <Route path="/" element={<Index />} />
                   <Route path="/login" element={<Login />} />
-                  {/* ...existing code... */}
                   <Route path="/dashboard" element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} />
                   <Route path="/faculty-dashboard" element={<ProtectedRoute requiredRole="faculty"><FacultyDashboard /></ProtectedRoute>} />
                   <Route path="/upload" element={<ProtectedRoute><UploadQuestions /></ProtectedRoute>} />
-                  <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
-                  <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
+                  
+                    <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
+                    <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />
                   <Route path="/verify" element={<ProtectedRoute authOnly><VerifyQuestions /></ProtectedRoute>} />
                   <Route path="/verify-faculty-open" element={<VerifyQuestionsFacultyOpen />} />
                   <Route path="/templates" element={<ProtectedRoute requiredRole="admin"><Templates /></ProtectedRoute>} />
