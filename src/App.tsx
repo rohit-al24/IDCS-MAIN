@@ -17,6 +17,7 @@ import Templates from "./pages/Templates";
 import GeneratePaper from "./pages/GeneratePaper";
 import NotFound from "./pages/NotFound";
 import TemplateUploadPage from "./pages/TemplateUploadPage";
+import QPUpload from "./pages/QPUpload";
 import ManageQuestionsPage from "./pages/ManageQuestionsPage";
 import TemplateQuestionReviewPage from "./pages/TemplateQuestionReviewPage";
 import React, { useState, useEffect } from "react";
@@ -151,6 +152,13 @@ function App() {
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild>
+                              <NavLink to="/qp-upload" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
+                                <FileUp className="w-5 h-5" />QB Upload
+                              </NavLink>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild>
                               <NavLink to="/verify" activeClassName="font-bold text-primary bg-primary/10 shadow-sm" className="flex items-center gap-3 text-lg py-2 px-4 rounded-lg transition-all hover:bg-primary/10 hover:text-primary">
                                 <Shield className="w-5 h-5" />Verify
                               </NavLink>
@@ -226,6 +234,7 @@ function App() {
                   <Route path="/dashboard" element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} />
                   <Route path="/faculty-dashboard" element={<ProtectedRoute requiredRole="faculty"><FacultyDashboard /></ProtectedRoute>} />
                   <Route path="/upload" element={<ProtectedRoute><UploadQuestions /></ProtectedRoute>} />
+                  <Route path="/qp-upload" element={<ProtectedRoute requiredRole="admin"><QPUpload /></ProtectedRoute>} />
                   
                     <Route path="/verify" element={<ProtectedRoute requiredRole="admin"><VerifyQuestions /></ProtectedRoute>} />
                     <Route path="/faculty/verify/:bankId" element={<ProtectedRoute requiredRole="faculty"><VerifyQuestionsBank /></ProtectedRoute>} />

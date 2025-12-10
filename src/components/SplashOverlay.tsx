@@ -48,6 +48,15 @@ export default function SplashOverlay({ onDone, videoSrc }: { onDone?: () => voi
           muted
           onEnded={handleVideoEnd}
           onError={handleVideoError}
+          onClick={() => {
+            setFadeOut(true);
+            setTimeout(() => {
+              setVisible(false);
+              onDone?.();
+            }, 700);
+          }}
+          style={{ cursor: 'pointer' }}
+          title="Click to skip"
         />
       )}
     </div>

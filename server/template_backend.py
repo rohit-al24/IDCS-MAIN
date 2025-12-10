@@ -85,26 +85,91 @@ async def scan_docx(file: UploadFile = File(...)):
     try:
         doc = Document(tmp_path)
         part = None
+        import base64
+        # Build a map of image related parts (rid -> data-uri)
+        image_map = {}
+        try:
+            for rid, part_obj in doc.part.related_parts.items():
+                ct = getattr(part_obj, 'content_type', '') or ''
+                if ct.startswith('image/'):
+                    blob = getattr(part_obj, 'blob', None)
+                    if blob:
+                        image_map[rid] = f"data:{ct};base64,{base64.b64encode(blob).decode('ascii')}"
+        except Exception:
+            image_map = {}
+
+        def extract_images_from_paragraph(p):
+            imgs = []
+            try:
+                # Brute force search for any attribute value that matches a known image RID
+                for elem in p._element.iter():
+                    for attrib_name, attrib_value in elem.attrib.items():
+                        if attrib_value in image_map:
+                            if image_map[attrib_value] not in imgs:
+                                imgs.append(image_map[attrib_value])
+                                logger.info('template_backend: found image via attribute %s="%s" on tag %s', attrib_name, attrib_value, elem.tag)
+            except Exception as e:
+                logger.error('template_backend: error extracting images from paragraph: %s', e)
+            return imgs
+
+        def extract_images_from_cell(cell):
+            imgs = []
+            try:
+                for p in cell.paragraphs:
+                    imgs.extend(extract_images_from_paragraph(p))
+                ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main', 'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture', 'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+                try:
+                    embeds = cell._element.xpath('.//@r:embed', namespaces=ns)
+                    for rel in embeds:
+                        if rel in image_map and image_map[rel] not in imgs:
+                            imgs.append(image_map[rel])
+                            logger.info('template_backend: cell attached image via r:embed rel=%s', rel)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return imgs
+        # Diagnostics capture for debugging
+        try:
+            table_shapes = []
+            sample_table_texts = []
+            for t in doc.tables:
+                table_shapes.append(len(t.columns))
+                rows_txt = []
+                for r in t.rows[:3]:
+                    cells = [c.text.strip().replace('\n',' ')[:120] for c in r.cells]
+                    rows_txt.append(' | '.join(cells))
+                sample_table_texts.append(' || '.join(rows_txt))
+            para_snippets = [p.text.strip().replace('\n',' ')[:240] for p in doc.paragraphs[:20]]
+        except Exception:
+            table_shapes = []
+            sample_table_texts = []
+            para_snippets = []
         for table in doc.tables:
-            # PART-A: 10x2 table
-            if len(table.columns) == 4:
+            # PART-A: 4 or 5 column table (some templates use 5 columns: Q.No, Question, CO, BTL, Marks)
+            cols = len(table.columns)
+            if cols == 4 or cols == 5:
                 part = 'A'
                 for row in table.rows[1:]:
-                    qtext = row.cells[1].text.strip()
-                    co = row.cells[2].text.strip()
-                    btl = row.cells[3].text.strip()
+                    qtext = row.cells[1].text.strip() if len(row.cells) > 1 else ''
+                    co = row.cells[2].text.strip() if len(row.cells) > 2 else ''
+                    btl = row.cells[3].text.strip() if len(row.cells) > 3 else ''
+                    marks = row.cells[4].text.strip() if cols == 5 and len(row.cells) > 4 else (row.cells[3].text.strip() if len(row.cells) > 3 else '')
                     number = len(questions) + 1
                     if qtext:
-                        questions.append({
+                        imgs = extract_images_from_cell(row.cells[1]) if len(row.cells) > 1 else []
+                        qobj = {
                             'number': number,
                             'text': qtext,
                             'co': co,
                             'btl': btl,
-                            'marks': 2,
+                            'marks': marks or 2,
                             'part': part
-                        })
-            # PART-B: 5x16 table (with OR)
-            elif len(table.columns) >= 7:
+                        }
+                        if imgs: qobj['images'] = imgs
+                        questions.append(qobj)
+            # PART-B: tables with OR structure. Accept 5+ columns (some generators use 5 columns)
+            elif cols >= 5:
                 part = 'B'
                 rows = table.rows
                 i = 0
@@ -115,17 +180,18 @@ async def scan_docx(file: UploadFile = File(...)):
                         continue
                     if i+2 < len(rows) and 'OR' in rows[i+1].cells[0].text.upper():
                         # a/b pair
-                        q_a = row.cells[1].text.strip()
+                        q_a = row.cells[1].text.strip() if len(row.cells) > 1 else ''
                         co_a = row.cells[2].text.strip() if len(row.cells) > 2 else ''
-                        btl_a = row.cells[4].text.strip() if len(row.cells) > 4 else ''
-                        marks_a = row.cells[6].text.strip() if len(row.cells) > 6 else '16'
-                        q_b = rows[i+2].cells[1].text.strip()
+                        btl_a = row.cells[3].text.strip() if len(row.cells) > 3 else ''
+                        marks_a = row.cells[-1].text.strip() if len(row.cells) > 0 else '16'
+                        q_b = rows[i+2].cells[1].text.strip() if len(rows[i+2].cells) > 1 else ''
                         co_b = rows[i+2].cells[2].text.strip() if len(rows[i+2].cells) > 2 else ''
-                        btl_b = rows[i+2].cells[4].text.strip() if len(rows[i+2].cells) > 4 else ''
-                        marks_b = rows[i+2].cells[6].text.strip() if len(rows[i+2].cells) > 6 else '16'
+                        btl_b = rows[i+2].cells[3].text.strip() if len(rows[i+2].cells) > 3 else ''
+                        marks_b = rows[i+2].cells[-1].text.strip() if len(rows[i+2].cells) > 0 else '16'
                         number = 10 + (len(questions) // 2) + 1
                         if q_a:
-                            questions.append({
+                            imgs_a = extract_images_from_cell(row.cells[1]) if len(row.cells) > 1 else []
+                            qobj_a = {
                                 'number': f'{number}a',
                                 'text': q_a,
                                 'co': co_a,
@@ -133,9 +199,12 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'marks': marks_a,
                                 'part': part,
                                 'or': False
-                            })
+                            }
+                            if imgs_a: qobj_a['images'] = imgs_a
+                            questions.append(qobj_a)
                         if q_b:
-                            questions.append({
+                            imgs_b = extract_images_from_cell(rows[i+2].cells[1]) if len(rows[i+2].cells) > 1 else []
+                            qobj_b = {
                                 'number': f'{number}b',
                                 'text': q_b,
                                 'co': co_b,
@@ -143,13 +212,124 @@ async def scan_docx(file: UploadFile = File(...)):
                                 'marks': marks_b,
                                 'part': part,
                                 'or': True
-                            })
+                            }
+                            if imgs_b: qobj_b['images'] = imgs_b
+                            questions.append(qobj_b)
                         i += 3
                     else:
                         i += 1
     finally:
         os.remove(tmp_path)
-    return {"questions": questions}
+    # Fallback: if no questions found from tables, try paragraph-based parsing
+    if not questions:
+        import re
+        orig_paras = list(doc.paragraphs)
+        paras = [p.text.rstrip() for p in orig_paras]
+        q_re = re.compile(r"^\s*(\d+[a-zA-Z0-9]*)[\.|\)|\-|:]?\s+(.*)")
+        opt_re = re.compile(r"^\s*(?:\(?[A-Za-z0-9]{1,2}\)?[\.|\)]\s*)(.*)")
+        ans_re = re.compile(r"^(?:Answer|Ans|Correct|Solution)\s*[:\-]\s*(.*)", re.I)
+        i = 0
+        while i < len(paras):
+            line = paras[i].strip()
+            if not line:
+                i += 1; continue
+            m = q_re.match(line)
+            if m:
+                num = m.group(1)
+                text = m.group(2).strip()
+                options = []
+                answer_text = None
+                j = i + 1
+                while j < len(paras):
+                    nxt = paras[j].strip()
+                    if not nxt:
+                        j += 1; continue
+                    if q_re.match(nxt):
+                        break
+                    am = ans_re.match(nxt)
+                    om = opt_re.match(nxt)
+                    if am:
+                        answer_text = am.group(1).strip()
+                    elif om:
+                        options.append(om.group(1).strip())
+                    else:
+                        if options:
+                            options[-1] = options[-1] + ' ' + nxt
+                        else:
+                            text = text + ' ' + nxt
+                    # also extract images present in this paragraph
+                    try:
+                        imgs_here = extract_images_from_paragraph(orig_paras[j])
+                        if imgs_here:
+                            if 'images' not in locals():
+                                images = []
+                            images.extend(imgs_here)
+                    except Exception:
+                        pass
+                    j += 1
+                qobj = {'number': num, 'text': text, 'co': None, 'btl': None, 'marks': None, 'part': None}
+                if options:
+                    qobj['options'] = options
+                    qobj['type'] = 'objective'
+                if answer_text:
+                    qobj['answer_text'] = answer_text
+                if 'images' in locals() and images:
+                    qobj['images'] = images
+                    del images
+                questions.append(qobj)
+                i = j
+            else:
+                i += 1
+
+    # Add diagnostic info to response to help debug parsing failures
+    diagnostic = {
+        'table_count': len(table_shapes),
+        'table_shapes': table_shapes,
+        'sample_table_texts': sample_table_texts,
+        'paragraph_snippets': para_snippets,
+        'parsed_questions': len(questions),
+        'image_count': sum(len(q.get('images', [])) for q in questions)
+    }
+    # Summarize related parts (images, media) present in the docx package for debugging
+    try:
+        related = []
+        for rid, part_obj in doc.part.related_parts.items():
+            ct = getattr(part_obj, 'content_type', None) or str(type(part_obj))
+            blob = getattr(part_obj, 'blob', None)
+            size = len(blob) if blob else None
+            related.append({'rel': rid, 'content_type': ct, 'size': size})
+        diagnostic['related_parts'] = related
+    except Exception:
+        diagnostic['related_parts'] = []
+    # Search all package parts for references to related part ids and image-like tags
+    try:
+        references = {rid: [] for rid, _ in doc.part.related_parts.items()}
+        image_hint_parts = set()
+        pkg = getattr(doc.part, 'package', None)
+        if pkg is not None:
+            for p in pkg.parts:
+                try:
+                    blob = getattr(p, 'blob', None)
+                    if not blob:
+                        continue
+                    text = blob.decode('utf-8', errors='ignore')
+                    for rid in list(references.keys()):
+                        if rid in text:
+                            references[rid].append(str(getattr(p, 'partname', p.partname)))
+                    if any(k in text for k in ('<a:blip', 'pic:blipFill', '<v:imagedata', 'img src="')):
+                        image_hint_parts.add(str(getattr(p, 'partname', p.partname)))
+                except Exception:
+                    continue
+        diagnostic['references'] = references
+        diagnostic['image_hint_parts'] = list(image_hint_parts)
+    except Exception:
+        diagnostic['references'] = {}
+        diagnostic['image_hint_parts'] = []
+    try:
+        logger.info('scan-docx diagnostic: %s', diagnostic)
+    except Exception:
+        pass
+    return {"questions": questions, "diagnostic": diagnostic}
 
 @app.post("/api/template/generate-docx")
 async def generate_docx(

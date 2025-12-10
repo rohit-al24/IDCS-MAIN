@@ -135,14 +135,25 @@ async def bulk_insert_questions(title_id: int = Form(...), status: str = Form('p
         if not isinstance(data, list):
             raise HTTPException(status_code=400, detail='payload must be a JSON list')
         conn = get_conn(); cur = conn.cursor()
-        for q in data:
-            cur.execute("""INSERT INTO question_bank(question_text,type,options,correct_answer,answer_text,btl,marks,status,chapter,course_outcomes,title_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (q.get('question_text',''), q.get('type','objective'), json.dumps(q.get('options')) if q.get('options') else None,
-                 q.get('correct_answer'), q.get('answer_text',''), q.get('btl',2), q.get('marks',1), status,
-                 q.get('chapter'), q.get('course_outcomes'), title_id))
+        inserted = 0
+        failed = []
+        for idx, q in enumerate(data):
+            try:
+                # Remove images from payload to avoid huge blobs in DB table
+                if isinstance(q, dict) and 'images' in q:
+                    q.pop('images', None)
+                opts = q.get('options') if isinstance(q, dict) else None
+                cur.execute("""INSERT INTO question_bank(question_text,type,options,correct_answer,answer_text,btl,marks,status,chapter,course_outcomes,title_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (q.get('question_text','') if isinstance(q, dict) else '', q.get('type','objective') if isinstance(q, dict) else 'descriptive', json.dumps(opts) if opts else None,
+                     q.get('correct_answer') if isinstance(q, dict) else None, q.get('answer_text','') if isinstance(q, dict) else None, q.get('btl',2) if isinstance(q, dict) else 2, q.get('marks',1) if isinstance(q, dict) else 1, status,
+                     q.get('chapter') if isinstance(q, dict) else None, q.get('course_outcomes') if isinstance(q, dict) else None, title_id))
+                inserted += 1
+            except Exception as e:
+                logging.exception('Failed inserting question index %s: %s', idx, e)
+                failed.append({'index': idx, 'error': str(e)})
         conn.commit(); conn.close()
-        return {'inserted': len(data)}
+        return {'inserted': inserted, 'failed': failed}
     except HTTPException:
         raise
     except Exception as e:
@@ -243,34 +254,241 @@ async def scan_docx(file: UploadFile = File(...)):
     questions = []
     try:
         doc = Document(tmp_path); part=None
+        import base64
+        # Build a map of image related parts (rid -> data-uri)
+        image_map = {}
+        try:
+            for rid, part_obj in doc.part.related_parts.items():
+                ct = getattr(part_obj, 'content_type', '') or ''
+                if ct.startswith('image/'):
+                    blob = getattr(part_obj, 'blob', None)
+                    if blob:
+                        image_map[rid] = f"data:{ct};base64,{base64.b64encode(blob).decode('ascii')}"
+        except Exception:
+            image_map = {}
+
+        def extract_images_from_paragraph(p):
+            imgs = []
+            try:
+                # Brute force search for any attribute value that matches a known image RID
+                for elem in p._element.iter():
+                    for attrib_name, attrib_value in elem.attrib.items():
+                        if attrib_value in image_map:
+                            if image_map[attrib_value] not in imgs:
+                                imgs.append(image_map[attrib_value])
+                                if logger:
+                                    logger.info('[scan-docx] found image via attribute %s="%s" on tag %s', attrib_name, attrib_value, elem.tag)
+            except Exception as e:
+                if logger:
+                    logger.error('[scan-docx] error extracting images from paragraph: %s', e)
+            return imgs
+
+        def extract_images_from_cell(cell):
+            imgs = []
+            try:
+                # Search paragraphs inside the cell
+                for p in cell.paragraphs:
+                    imgs.extend(extract_images_from_paragraph(p))
+                # also search for r:embed attributes in the cell XML
+                ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main', 'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture', 'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+                try:
+                    embeds = cell._element.xpath('.//@r:embed', namespaces=ns)
+                    for rel in embeds:
+                        if rel in image_map and image_map[rel] not in imgs:
+                            imgs.append(image_map[rel])
+                            if logger:
+                                logger.info('[scan-docx] cell attached image via r:embed rel=%s', rel)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return imgs
+        # Diagnostics: table shapes and paragraph snippets
+        try:
+            import logging
+            logger = logging.getLogger('app_local')
+        except Exception:
+            logger = None
+        table_shapes = []
+        sample_table_texts = []
+        for t in doc.tables:
+            try:
+                table_shapes.append(len(t.columns))
+                # capture first row text of each table for quick inspection
+                rows_txt = []
+                for r in t.rows[:3]:
+                    cells = [c.text.strip().replace('\n',' ')[:120] for c in r.cells]
+                    rows_txt.append(' | '.join(cells))
+                sample_table_texts.append(' || '.join(rows_txt))
+            except Exception:
+                sample_table_texts.append('error')
+        para_snippets = [p.text.strip().replace('\n',' ')[:240] for p in doc.paragraphs[:20]]
+        # First, try to extract questions from tables (expected template format)
         for table in doc.tables:
-            if len(table.columns) == 4:  # Part A
-                part='A'
+            cols = len(table.columns)
+            # Part A - 4 or 5 column table (some generators produce 5 cols: Q.No, Question, CO, BTL, Marks)
+            if cols == 4 or cols == 5:
+                part = 'A'
                 for row in table.rows[1:]:
-                    qtext=row.cells[1].text.strip(); co=row.cells[2].text.strip(); btl=row.cells[3].text.strip()
-                    if qtext:
-                        questions.append({'number':len(questions)+1,'text':qtext,'co':co,'btl':btl,'marks':2,'part':'A'})
-            elif len(table.columns) >= 7:  # Part B with OR
-                part='B'; rows=table.rows; i=0
+                    # question cell at index 1
+                    qcell = row.cells[1].text.strip() if len(row.cells) > 1 else ''
+                    co = row.cells[2].text.strip() if len(row.cells) > 2 else ''
+                    # BTL and marks shift when 5 columns
+                    btl = row.cells[3].text.strip() if len(row.cells) > 3 else ''
+                    marks = row.cells[4].text.strip() if cols == 5 and len(row.cells) > 4 else (row.cells[3].text.strip() if len(row.cells) > 3 else '')
+                    if qcell:
+                        imgs = extract_images_from_cell(row.cells[1]) if len(row.cells) > 1 else []
+                        qobj = {'number': len(questions) + 1, 'text': qcell, 'co': co, 'btl': btl, 'marks': marks or 2, 'part': 'A'}
+                        if imgs:
+                            qobj['images'] = imgs
+                        questions.append(qobj)
+            # Part B: tables with OR structure - accept 5+ columns as well (some generators use 5 columns)
+            elif cols >= 5:
+                part = 'B'; rows = table.rows; i = 0
                 while i < len(rows):
                     if 'OR' in rows[i].cells[0].text.upper():
-                        i+=1; continue
-                    if i+2 < len(rows) and 'OR' in rows[i+1].cells[0].text.upper():
-                        q_a=rows[i].cells[1].text.strip(); q_b=rows[i+2].cells[1].text.strip()
-                        co_a=rows[i].cells[2].text.strip(); co_b=rows[i+2].cells[2].text.strip()
-                        btl_a=rows[i].cells[4].text.strip(); btl_b=rows[i+2].cells[4].text.strip()
-                        marks_a=rows[i].cells[6].text.strip() or '16'; marks_b=rows[i+2].cells[6].text.strip() or '16'
-                        base_num=10+(len([q for q in questions if q.get('part')=='B'])//2)+1
+                        i += 1; continue
+                    if i + 2 < len(rows) and 'OR' in rows[i+1].cells[0].text.upper():
+                        # pick question text and metadata from appropriate cells
+                        q_a = rows[i].cells[1].text.strip() if len(rows[i].cells) > 1 else ''
+                        q_b = rows[i+2].cells[1].text.strip() if len(rows[i+2].cells) > 1 else ''
+                        co_a = rows[i].cells[2].text.strip() if len(rows[i].cells) > 2 else ''
+                        co_b = rows[i+2].cells[2].text.strip() if len(rows[i+2].cells) > 2 else ''
+                        btl_a = rows[i].cells[3].text.strip() if len(rows[i].cells) > 3 else ''
+                        btl_b = rows[i+2].cells[3].text.strip() if len(rows[i+2].cells) > 3 else ''
+                        marks_a = rows[i].cells[-1].text.strip() if len(rows[i].cells) > 0 else '16'
+                        marks_b = rows[i+2].cells[-1].text.strip() if len(rows[i+2].cells) > 0 else '16'
+                        base_num = 10 + (len([q for q in questions if q.get('part') == 'B']) // 2) + 1
                         if q_a:
-                            questions.append({'number':f'{base_num}a','text':q_a,'co':co_a,'btl':btl_a,'marks':marks_a,'part':'B','or':False})
+                            imgs_a = extract_images_from_cell(rows[i].cells[1]) if len(rows[i].cells) > 1 else []
+                            qobj_a = {'number': f'{base_num}a', 'text': q_a, 'co': co_a, 'btl': btl_a, 'marks': marks_a, 'part': 'B', 'or': False}
+                            if imgs_a: qobj_a['images'] = imgs_a
+                            questions.append(qobj_a)
                         if q_b:
-                            questions.append({'number':f'{base_num}b','text':q_b,'co':co_b,'btl':btl_b,'marks':marks_b,'part':'B','or':True})
-                        i+=3
+                            imgs_b = extract_images_from_cell(rows[i+2].cells[1]) if len(rows[i+2].cells) > 1 else []
+                            qobj_b = {'number': f'{base_num}b', 'text': q_b, 'co': co_b, 'btl': btl_b, 'marks': marks_b, 'part': 'B', 'or': True}
+                            if imgs_b: qobj_b['images'] = imgs_b
+                            questions.append(qobj_b)
+                        i += 3
                     else:
-                        i+=1
+                        i += 1
+        # If no questions found in tables, try a fallback: parse paragraphs for numbered lines
+        if not questions:
+            import re
+            orig_paras = list(doc.paragraphs)
+            paras = [p.text.rstrip() for p in orig_paras]
+            q_re = re.compile(r"^\s*(\d+[a-zA-Z0-9]*)[\.|\)|\-|:]?\s+(.*)")
+            opt_re = re.compile(r"^\s*(?:\(?[A-Za-z0-9]{1,2}\)?[\.|\)]\s*)(.*)")
+            ans_re = re.compile(r"^(?:Answer|Ans|Correct|Solution)\s*[:\-]\s*(.*)", re.I)
+            i = 0
+            while i < len(paras):
+                line = paras[i].strip()
+                if not line:
+                    i += 1; continue
+                m = q_re.match(line)
+                if m:
+                    num = m.group(1)
+                    text = m.group(2).strip()
+                    options = []
+                    answer_text = None
+                    j = i + 1
+                    # gather following option/answer lines until next question
+                    while j < len(paras):
+                        nxt = paras[j].strip()
+                        if not nxt:
+                            j += 1; continue
+                        if q_re.match(nxt):
+                            break
+                        am = ans_re.match(nxt)
+                        om = opt_re.match(nxt)
+                        if am:
+                            answer_text = am.group(1).strip()
+                        elif om:
+                            options.append(om.group(1).strip())
+                        else:
+                            # continuation: attach to question text or last option
+                            if options:
+                                options[-1] = options[-1] + ' ' + nxt
+                            else:
+                                text = text + ' ' + nxt
+                        # also extract images present in this paragraph
+                        try:
+                            imgs_here = extract_images_from_paragraph(orig_paras[j])
+                            if imgs_here:
+                                if 'images' not in locals():
+                                    images = []
+                                images.extend(imgs_here)
+                        except Exception:
+                            pass
+                        j += 1
+                    qobj = {'number': num, 'text': text, 'co': None, 'btl': None, 'marks': None, 'part': None}
+                    if options:
+                        qobj['options'] = options
+                        qobj['type'] = 'objective'
+                    if answer_text:
+                        qobj['answer_text'] = answer_text
+                    # attach any collected images
+                    if 'images' in locals() and images:
+                        qobj['images'] = images
+                        del images
+                    questions.append(qobj)
+                    i = j
+                else:
+                    i += 1
     finally:
         os.remove(tmp_path)
-    return {'questions':questions}
+    diagnostic = {
+        'table_count': len(table_shapes),
+        'table_shapes': table_shapes,
+        'sample_table_texts': sample_table_texts,
+        'paragraph_snippets': para_snippets,
+        'parsed_questions': len(questions),
+        'image_count': sum(len(q.get('images', [])) for q in questions)
+    }
+    # Summarize related parts (images, media) present in the docx package for debugging
+    try:
+        related = []
+        for rid, part_obj in doc.part.related_parts.items():
+            ct = getattr(part_obj, 'content_type', None) or str(type(part_obj))
+            blob = getattr(part_obj, 'blob', None)
+            size = len(blob) if blob else None
+            related.append({'rel': rid, 'content_type': ct, 'size': size})
+        diagnostic['related_parts'] = related
+    except Exception:
+        diagnostic['related_parts'] = []
+    # Search all package parts for references to related part ids and for image-like tags
+    try:
+        references = {rid: [] for rid, _ in doc.part.related_parts.items()}
+        image_hint_parts = set()
+        pkg = getattr(doc.part, 'package', None)
+        if pkg is not None:
+            for p in pkg.parts:
+                try:
+                    blob = getattr(p, 'blob', None)
+                    if not blob:
+                        continue
+                    text = blob.decode('utf-8', errors='ignore')
+                    # check for direct references to relationship ids (rIdXXX)
+                    for rid in list(references.keys()):
+                        if rid in text:
+                            references[rid].append(str(getattr(p, 'partname', p.partname)))
+                    # check for image-related XML tags
+                    if any(k in text for k in ('<a:blip', 'pic:blipFill', '<v:imagedata', 'img src="')):
+                        image_hint_parts.add(str(getattr(p, 'partname', p.partname)))
+                except Exception:
+                    continue
+        diagnostic['references'] = references
+        diagnostic['image_hint_parts'] = list(image_hint_parts)
+    except Exception:
+        diagnostic['references'] = {}
+        diagnostic['image_hint_parts'] = []
+    if logger:
+        try:
+            logger.info('[scan-docx] diagnostic: %s', diagnostic)
+        except Exception:
+            pass
+    # Return diagnostic for debugging; front-end can ignore if not used
+    return {'questions': questions, 'diagnostic': diagnostic}
 
 @app.post('/api/template/generate-docx')
 async def generate_docx(
